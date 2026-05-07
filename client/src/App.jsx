@@ -5021,6 +5021,7 @@ function Composer({
               <button
                 type="button"
                 className={composerMode === 'chat' ? 'is-selected' : ''}
+                aria-pressed={composerMode === 'chat'}
                 onClick={() => onSelectComposerMode?.('chat')}
               >
                 Chat
@@ -5028,6 +5029,7 @@ function Composer({
               <button
                 type="button"
                 className={composerMode === 'plan' ? 'is-selected' : ''}
+                aria-pressed={composerMode === 'plan'}
                 onClick={() => onSelectComposerMode?.('plan')}
               >
                 Plan

@@ -4243,7 +4243,7 @@ button {
   align-items: center;
   height: 30px;
   padding: 2px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--line);
   border-radius: 8px;
   background: rgba(127, 137, 155, 0.08);
   flex: 0 0 auto;
@@ -5256,13 +5256,42 @@ button {
 }
 
 @media (max-width: 380px) {
+  .composer-controls {
+    flex-wrap: wrap;
+    align-items: stretch;
+  }
+
+  .control-left {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    width: 100%;
+    flex: 1 0 100%;
+  }
+
+  .control-right {
+    width: 100%;
+    flex: 1 0 100%;
+  }
+
   .permission-pill {
-    max-width: 92px;
+    max-width: none;
     overflow: hidden;
   }
 
+  .composer-mode-toggle {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    width: 100%;
+  }
+
+  .skill-select {
+    grid-column: 3;
+    grid-row: 1;
+  }
+
   .composer-mode-toggle button {
-    min-width: 38px;
+    flex: 1 1 0;
+    min-width: 0;
     padding: 0 6px;
   }
 
