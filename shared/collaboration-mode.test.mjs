@@ -43,6 +43,20 @@ test('normalizeCollaborationMode rejects unsupported modes', () => {
   );
 });
 
+test('normalizeCollaborationMode returns null for default mode', () => {
+  assert.equal(normalizeCollaborationMode(
+    { mode: 'default' },
+    { model: 'gpt-5.5', reasoningEffort: 'medium' }
+  ), null);
+});
+
+test('normalizeCollaborationMode requires a model for plan mode', () => {
+  assert.throws(
+    () => normalizeCollaborationMode({ mode: 'plan' }, { reasoningEffort: 'medium' }),
+    /Plan mode requires a model/
+  );
+});
+
 test('normalizeCollaborationMode fills settings from selected send options', () => {
   assert.deepEqual(normalizeCollaborationMode({
     mode: 'plan',
@@ -55,6 +69,20 @@ test('normalizeCollaborationMode fills settings from selected send options', () 
     settings: {
       model: 'gpt-5.4',
       reasoning_effort: 'high',
+      developer_instructions: null
+    }
+  });
+});
+
+test('normalizeCollaborationMode normalizes invalid reasoning effort to null', () => {
+  assert.deepEqual(normalizeCollaborationMode({
+    mode: 'plan',
+    settings: { model: 'gpt-5.5', reasoning_effort: 'turbo' }
+  }), {
+    mode: 'plan',
+    settings: {
+      model: 'gpt-5.5',
+      reasoning_effort: null,
       developer_instructions: null
     }
   });
