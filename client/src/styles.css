@@ -4238,6 +4238,34 @@ button {
   overflow: hidden;
 }
 
+.composer-mode-toggle {
+  display: inline-flex;
+  align-items: center;
+  height: 30px;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: rgba(127, 137, 155, 0.08);
+  flex: 0 0 auto;
+}
+
+.composer-mode-toggle button {
+  height: 24px;
+  min-width: 44px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #60666e;
+  font-weight: 650;
+}
+
+.composer-mode-toggle button.is-selected {
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.12);
+}
+
 .skill-select {
   max-width: 108px;
   overflow: hidden;
@@ -5231,6 +5259,11 @@ button {
   .permission-pill {
     max-width: 92px;
     overflow: hidden;
+  }
+
+  .composer-mode-toggle button {
+    min-width: 38px;
+    padding: 0 6px;
   }
 
   .model-select {

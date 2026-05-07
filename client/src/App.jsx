@@ -5017,6 +5017,22 @@ function Composer({
               {permissionLabel(permissionMode)}
               <ChevronDown size={15} />
             </button>
+            <div className="composer-mode-toggle" role="group" aria-label="协作模式">
+              <button
+                type="button"
+                className={composerMode === 'chat' ? 'is-selected' : ''}
+                onClick={() => onSelectComposerMode?.('chat')}
+              >
+                Chat
+              </button>
+              <button
+                type="button"
+                className={composerMode === 'plan' ? 'is-selected' : ''}
+                onClick={() => onSelectComposerMode?.('plan')}
+              >
+                Plan
+              </button>
+            </div>
             <button type="button" className="skill-select" onClick={() => toggleMenu('skill')}>
               <Bot size={14} />
               <span>{selectedSkillSummary(selectedSkills)}</span>
