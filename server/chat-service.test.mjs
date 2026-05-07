@@ -135,6 +135,31 @@ test('sendChat sends existing desktop-ipc threads through the desktop follower b
   assert.equal(started.params.input[0].text, '从手机发到桌面已有线程');
 });
 
+test('sendChat desktop follower start omits collaboration mode by default', async () => {
+  let started = null;
+  const { service } = makeChatService({
+    getDesktopBridgeStatus: async () => ({
+      strict: true,
+      connected: true,
+      mode: 'desktop-ipc',
+      reason: null,
+      capabilities: { sendToOpenDesktopThread: true, createThread: false }
+    }),
+    startDesktopFollowerTurn: async (conversationId, params) => {
+      started = { conversationId, params };
+      return { result: { turn: { id: 'desktop-turn-default' } } };
+    }
+  });
+
+  await service.sendChat({
+    projectId: 'project-1',
+    sessionId: 'thread-1',
+    message: '正常发送到桌面'
+  });
+
+  assert.equal(Object.hasOwn(started.params, 'collaborationMode'), false);
+});
+
 test('sendChat falls back to headless local when desktop-ipc has no thread owner', async () => {
   let runPayload = null;
   const { service } = makeChatService({

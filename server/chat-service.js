@@ -694,9 +694,11 @@ export function createChatService({
         : { type: 'workspaceWrite', networkAccess: false },
       model: model || null,
       effort: reasoningEffort || null,
-      collaborationMode,
       attachments: []
     };
+    if (collaborationMode !== null) {
+      baseTurnStartParams.collaborationMode = collaborationMode;
+    }
 
     rememberTurn(turnId, {
       projectId: project.id,
