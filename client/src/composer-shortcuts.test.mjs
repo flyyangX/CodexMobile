@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  SLASH_COMMANDS,
   detectComposerToken,
   filteredSlashCommands,
   replaceComposerToken
@@ -40,4 +41,12 @@ test('filteredSlashCommands matches Chinese commands and English aliases', () =>
   assert.equal(filteredSlashCommands('状态')[0].id, 'status');
   assert.equal(filteredSlashCommands('compact')[0].id, 'compact');
   assert.equal(filteredSlashCommands('review')[0].id, 'review');
+});
+
+test('plan slash command is a mode switch', () => {
+  const command = SLASH_COMMANDS.find((item) => item.id === 'plan');
+  assert.equal(command.action, 'set-mode');
+  assert.equal(command.mode, 'plan');
+  assert.equal(filteredSlashCommands('plan')[0].id, 'plan');
+  assert.equal(filteredSlashCommands('计划')[0].id, 'plan');
 });

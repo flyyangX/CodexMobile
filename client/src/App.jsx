@@ -4360,6 +4360,8 @@ function Composer({
   onSelectModel,
   selectedReasoningEffort,
   onSelectReasoningEffort,
+  composerMode,
+  onSelectComposerMode,
   skills,
   selectedSkillPaths,
   onToggleSkill,
@@ -4496,6 +4498,12 @@ function Composer({
   }
 
   function runSlashCommand(command) {
+    if (command.action === 'set-mode') {
+      onSelectComposerMode?.(command.mode || 'chat');
+      replaceCurrentToken('');
+      setOpenMenu(null);
+      return;
+    }
     replaceCurrentToken(command.prompt ? `${command.prompt} ` : '');
     if (command.action === 'open-context') {
       setOpenMenu('context');
@@ -4945,6 +4953,8 @@ export default function App() {
   const [sessionsByProject, setSessionsByProject] = useState({});
   const [loadingProjectId, setLoadingProjectId] = useState(null);
   const [selectedSession, setSelectedSession] = useState(null);
+  const [composerModesBySession, setComposerModesBySession] = useState({});
+  const selectedComposerMode = composerModesBySession[selectedSession?.id || ''] || 'chat';
   const [messages, setMessages] = useState([]);
   const [activityClockNow, setActivityClockNow] = useState(() => Date.now());
   const [completedSessionIds, setCompletedSessionIds] = useState({});
@@ -7240,7 +7250,20 @@ export default function App() {
     setSessionsByProject((current) => upsertSessionInProject(current, project.id, draft));
     setMessages([]);
     setAttachments([]);
+    setComposerModesBySession((current) => ({ ...current, [draft.id]: 'chat' }));
     setDrawerOpen(false);
+  }
+
+  function setSelectedComposerMode(mode) {
+    const normalized = mode === 'plan' ? 'plan' : 'chat';
+    const sessionKey = selectedSessionRef.current?.id || selectedSession?.id || '';
+    if (!sessionKey) {
+      return;
+    }
+    setComposerModesBySession((current) => ({
+      ...current,
+      [sessionKey]: normalized
+    }));
   }
 
   function clearAppDropState() {
@@ -8159,6 +8182,8 @@ export default function App() {
         onSelectModel={setSelectedModel}
         selectedReasoningEffort={selectedReasoningEffort}
         onSelectReasoningEffort={setSelectedReasoningEffort}
+        composerMode={selectedComposerMode}
+        onSelectComposerMode={setSelectedComposerMode}
         skills={status.skills}
         selectedSkillPaths={selectedSkillPaths}
         onToggleSkill={toggleSelectedSkill}

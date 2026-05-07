@@ -8,6 +8,15 @@ export const SLASH_COMMANDS = [
     action: 'open-context'
   },
   {
+    id: 'plan',
+    token: '/计划',
+    aliases: ['/plan'],
+    title: '计划模式',
+    description: '让 Codex 先规划并等待你选择方案',
+    action: 'set-mode',
+    mode: 'plan'
+  },
+  {
     id: 'compact',
     token: '/压缩上下文',
     aliases: ['/compact'],
