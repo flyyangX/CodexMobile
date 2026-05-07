@@ -15,6 +15,7 @@ import {
 } from './codex-config.js';
 import { registerMobileSession as registerMobileSessionInIndex } from './mobile-session-index.js';
 import { normalizeCollaborationMode } from '../shared/collaboration-mode.js';
+import { PendingUserInputRequests } from './user-input-requests.js';
 
 const MAX_RECENT_TURNS = 80;
 
@@ -113,6 +114,7 @@ export function createChatService({
   const sessionQueueKeys = new Map();
   const recentImagePromptsByProject = new Map();
   const activeImageRuns = new Map();
+  const pendingUserInputs = new PendingUserInputRequests();
 
   function rememberTurn(turnId, patch) {
     if (!turnId) {
@@ -556,6 +558,7 @@ export function createChatService({
         reasoningEffort: job.reasoningEffort,
         collaborationMode: job.collaborationMode,
         permissionMode: job.permissionMode,
+        onUserInputRequest: handleUserInputRequest,
         turnId: job.turnId
       },
       (payload) => {
@@ -1107,6 +1110,46 @@ export function createChatService({
     return abortCodexTurn(body.turnId || body.sessionId);
   }
 
+  function handleUserInputRequest(message, resolve) {
+    const { key, request } = pendingUserInputs.add(message, resolve);
+    const timestamp = new Date().toISOString();
+    broadcast({
+      type: 'user-input-request',
+      ...request,
+      key,
+      timestamp
+    });
+    broadcast({
+      type: 'status-update',
+      sessionId: request.threadId,
+      turnId: request.turnId,
+      kind: 'turn',
+      status: 'running',
+      label: '等待你的选择',
+      detail: request.questions[0]?.question || '',
+      timestamp
+    });
+    return { key, request };
+  }
+
+  function respondToUserInput(body = {}) {
+    const result = pendingUserInputs.answer(body);
+    if (!result.ok) {
+      return result;
+    }
+    const timestamp = new Date().toISOString();
+    const request = result.request;
+    broadcast({
+      type: 'user-input-resolved',
+      threadId: request.threadId,
+      sessionId: request.threadId,
+      turnId: request.turnId,
+      itemId: request.itemId,
+      timestamp
+    });
+    return { ok: true, ...request };
+  }
+
   return {
     abortChat,
     getActiveImageRuns,
@@ -1116,8 +1159,10 @@ export function createChatService({
     loadRecentImagePrompts,
     listQueue,
     removeQueuedDraft,
+    respondToUserInput,
     restoreQueuedDraft,
     sendChat,
+    handleUserInputRequest,
     sessionHasActiveWork,
     steerQueuedDraft
   };

@@ -32,6 +32,63 @@ async function flushQueuedWork() {
   await new Promise((resolve) => setImmediate(resolve));
 }
 
+test('chat service stores and answers pending user input requests', async () => {
+  const { service, broadcasts } = makeChatService();
+  const requestMessage = {
+    id: 9,
+    method: 'item/tool/requestUserInput',
+    params: {
+      threadId: 'thread-1',
+      turnId: 'turn-1',
+      itemId: 'input-1',
+      questions: [{
+        id: 'choice',
+        header: '方案',
+        question: '选哪个？',
+        isOther: false,
+        isSecret: false,
+        options: [{ label: 'A', description: '推荐' }]
+      }]
+    }
+  };
+
+  let resolved = null;
+  const pending = service.handleUserInputRequest(requestMessage, (answer) => {
+    resolved = answer;
+  });
+
+  assert.equal(pending.key, 'thread-1:turn-1:input-1');
+  const requestBroadcast = broadcasts.find((payload) => payload.type === 'user-input-request');
+  assert.equal(requestBroadcast.itemId, 'input-1');
+  assert.equal(requestBroadcast.questions[0].question, '选哪个？');
+  assert.equal(broadcasts.some((payload) => payload.type === 'status-update' && payload.label === '等待你的选择'), true);
+
+  const result = service.respondToUserInput({
+    threadId: 'thread-1',
+    turnId: 'turn-1',
+    itemId: 'input-1',
+    answers: { choice: { answers: ['A'] } }
+  });
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(resolved, { answers: { choice: { answers: ['A'] } } });
+  assert.equal(broadcasts.some((payload) => payload.type === 'user-input-resolved'), true);
+});
+
+test('chat service reports missing pending user input requests', () => {
+  const { service } = makeChatService();
+
+  const result = service.respondToUserInput({
+    threadId: 'thread-1',
+    turnId: 'turn-1',
+    itemId: 'missing',
+    answers: {}
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, 'not-found');
+});
+
 test('sendChat routes running input through desktop turn/steer', async () => {
   let steerPayload = null;
   const { service, broadcasts } = makeChatService({

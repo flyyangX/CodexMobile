@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { createCodexAppServerClient } from './codex-app-server.js';
+import { createCodexAppServerClient, defaultServerRequestResult } from './codex-app-server.js';
 import { buildCodexTurnInput, imageMarkdownFromCodexImageGeneration } from './codex-native-images.js';
 import { buildCodexLarkCliContext } from './lark-cli.js';
 import { detectFeishuSkillKeys } from './feishu-skills.js';
@@ -521,6 +521,16 @@ function tokenUsagePayload(tokenUsage = {}) {
   };
 }
 
+function normalizePlanItems(plan = []) {
+  if (!Array.isArray(plan)) {
+    return [];
+  }
+  return plan.map((item) => ({
+    step: String(item?.step || item?.text || '').trim(),
+    status: String(item?.status || 'pending').trim() || 'pending'
+  })).filter((item) => item.step);
+}
+
 function errorTextFromNotification(params = {}) {
   return params.error?.message || params.message || params.error || 'Codex turn failed';
 }
@@ -627,6 +637,47 @@ function emitAppServerNotification(message, sessionId, turnId, emit, state) {
     return;
   }
 
+  if (method === 'turn/plan/updated') {
+    const timestamp = new Date().toISOString();
+    const plan = normalizePlanItems(params.plan);
+    const explanation = String(params.explanation || '');
+    emit({
+      type: 'plan-update',
+      sessionId,
+      turnId,
+      explanation,
+      plan,
+      timestamp
+    });
+    emit({
+      type: 'activity-update',
+      sessionId,
+      turnId,
+      messageId: params.itemId || `${turnId}-plan`,
+      kind: 'plan',
+      label: statusLabel('plan', 'running'),
+      status: 'running',
+      detail: explanation,
+      timestamp
+    });
+    return;
+  }
+
+  if (method === 'item/plan/delta') {
+    emit({
+      type: 'activity-update',
+      sessionId,
+      turnId,
+      messageId: params.itemId || `${turnId}-plan-delta`,
+      kind: 'plan',
+      label: '正在规划',
+      status: 'running',
+      detail: String(params.delta || ''),
+      timestamp: new Date().toISOString()
+    });
+    return;
+  }
+
   if (method === 'item/agentMessage/delta') {
     const messageId = params.itemId || `${turnId}-agent-message`;
     const previous = state.agentMessages.get(messageId) || '';
@@ -706,7 +757,7 @@ function abortError() {
   return error;
 }
 
-export async function runCodexTurn({ sessionId, draftSessionId, projectPath, message, attachments = [], selectedSkills = [], model, reasoningEffort, collaborationMode = null, permissionMode, turnId: providedTurnId }, emit) {
+export async function runCodexTurn({ sessionId, draftSessionId, projectPath, message, attachments = [], selectedSkills = [], model, reasoningEffort, collaborationMode = null, permissionMode, onUserInputRequest = null, turnId: providedTurnId }, emit) {
   const workingDirectory = await ensureAsciiWorkingDirectory(projectPath);
   const { sandboxMode, approvalPolicy } = mapPermissionMode(permissionMode);
   const feishuSkillKeys = detectFeishuSkillKeys(message);
@@ -767,6 +818,15 @@ export async function runCodexTurn({ sessionId, draftSessionId, projectPath, mes
       cwd: workingDirectory,
       clientInfo: { name: 'CodexMobile', title: null, version: '0.1.0' },
       allowHeadlessLocal: true,
+      onServerRequest: (appMessage) => {
+        resetTurnInactivityTimeout();
+        if (appMessage.method === 'item/tool/requestUserInput' && onUserInputRequest) {
+          return new Promise((resolve) => {
+            onUserInputRequest(appMessage, resolve);
+          });
+        }
+        return defaultServerRequestResult(appMessage);
+      },
       onNotification: (appMessage) => {
         resetTurnInactivityTimeout();
         const params = appMessage.params || {};
