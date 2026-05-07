@@ -4362,6 +4362,7 @@ function Composer({
   attachments,
   onUploadFiles,
   onRemoveAttachment,
+  dropActive,
   fileMentions,
   onAddFileMention,
   onRemoveFileMention,
@@ -4381,8 +4382,6 @@ function Composer({
   const [skillFilter, setSkillFilter] = useState('');
   const [cursorPosition, setCursorPosition] = useState(0);
   const [fileSearch, setFileSearch] = useState({ query: '', loading: false, results: [] });
-  const [dragDepth, setDragDepth] = useState(0);
-  const dropActive = dragDepth > 0;
   const selectedFileMentions = Array.isArray(fileMentions) ? fileMentions : [];
   const hasInput = input.trim().length > 0 || attachments.length > 0 || selectedFileMentions.length > 0;
   const modelList = models?.length ? models : [{ value: selectedModel || 'gpt-5.5', label: selectedModel || 'gpt-5.5' }];
@@ -4563,39 +4562,6 @@ function Composer({
     uploadFiles(files);
   }
 
-  function handleDragEnter(event) {
-    if (!dragEventHasFiles(event)) {
-      return;
-    }
-    event.preventDefault();
-    setDragDepth((value) => value + 1);
-  }
-
-  function handleDragOver(event) {
-    if (!dragEventHasFiles(event)) {
-      return;
-    }
-    event.preventDefault();
-    event.dataTransfer.dropEffect = 'copy';
-  }
-
-  function handleDragLeave(event) {
-    if (!dragEventHasFiles(event)) {
-      return;
-    }
-    event.preventDefault();
-    setDragDepth((value) => Math.max(0, value - 1));
-  }
-
-  function handleDrop(event) {
-    if (!dragEventHasFiles(event)) {
-      return;
-    }
-    event.preventDefault();
-    setDragDepth(0);
-    uploadFiles(filesFromDropEvent(event));
-  }
-
   const tokenPanelOpen = !openMenu && composerToken && (
     (composerToken.type === 'slash' && slashMatches.length > 0) ||
     (composerToken.type === 'skill') ||
@@ -4606,10 +4572,6 @@ function Composer({
     <form
       className={`composer-wrap ${dropActive ? 'is-drop-active' : ''}`}
       onSubmit={submit}
-      onDragEnter={handleDragEnter}
-      onDragOver={handleDragOver}
-      onDragLeave={handleDragLeave}
-      onDrop={handleDrop}
     >
       <input
         ref={imageInputRef}
@@ -4991,6 +4953,7 @@ export default function App() {
   const [notificationPermission, setNotificationPermission] = useState(() => browserNotificationPermission());
   const [notificationsEnabled, setNotificationsEnabled] = useState(() => notificationPreferenceEnabled());
   const [uploading, setUploading] = useState(false);
+  const [appDragDepth, setAppDragDepth] = useState(0);
   const [permissionMode, setPermissionMode] = useState(DEFAULT_PERMISSION_MODE);
   const [selectedModel, setSelectedModel] = useState(DEFAULT_STATUS.model);
   const [selectedReasoningEffort, setSelectedReasoningEffort] = useState(() => {
@@ -5024,6 +4987,7 @@ export default function App() {
   const desktopIpcPendingRunsRef = useRef(new Map());
   const voiceDialogRecorderRef = useRef(null);
   const toastTimersRef = useRef(new Map());
+  const uploadBatchCountRef = useRef(0);
   const voiceDialogChunksRef = useRef([]);
   const voiceDialogStreamRef = useRef(null);
   const voiceDialogTimerRef = useRef(null);
@@ -5104,6 +5068,16 @@ export default function App() {
       root.style.removeProperty('--app-height');
       root.style.removeProperty('--app-width');
       delete root.dataset.keyboard;
+    };
+  }, []);
+
+  useEffect(() => {
+    const clearDropState = () => setAppDragDepth(0);
+    window.addEventListener('blur', clearDropState);
+    window.addEventListener('dragend', clearDropState);
+    return () => {
+      window.removeEventListener('blur', clearDropState);
+      window.removeEventListener('dragend', clearDropState);
     };
   }, []);
 
@@ -7261,10 +7235,53 @@ export default function App() {
     setDrawerOpen(false);
   }
 
+  function clearAppDropState() {
+    setAppDragDepth(0);
+  }
+
+  function handleAppDragEnter(event) {
+    if (!dragEventHasFiles(event)) {
+      return;
+    }
+    event.preventDefault();
+    setAppDragDepth((value) => value + 1);
+  }
+
+  function handleAppDragOver(event) {
+    if (!dragEventHasFiles(event)) {
+      return;
+    }
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'copy';
+  }
+
+  function handleAppDragLeave(event) {
+    if (!dragEventHasFiles(event)) {
+      return;
+    }
+    event.preventDefault();
+    setAppDragDepth((value) => Math.max(0, value - 1));
+  }
+
+  function handleAppDrop(event) {
+    if (!dragEventHasFiles(event)) {
+      return;
+    }
+    event.preventDefault();
+    clearAppDropState();
+    handleUploadFiles(filesFromDropEvent(event));
+  }
+
   async function handleUploadFiles(files) {
+    const uploadFiles = Array.from(files || []);
+    if (!uploadFiles.length) {
+      return;
+    }
+
+    uploadBatchCountRef.current += 1;
     setUploading(true);
     try {
-      for (const file of files) {
+      for (const file of uploadFiles) {
         const formData = new FormData();
         formData.append('file', file);
         const result = await apiFetch('/api/uploads', {
@@ -7284,7 +7301,10 @@ export default function App() {
         }
       ]);
     } finally {
-      setUploading(false);
+      uploadBatchCountRef.current = Math.max(0, uploadBatchCountRef.current - 1);
+      if (uploadBatchCountRef.current === 0) {
+        setUploading(false);
+      }
     }
   }
 
@@ -8012,6 +8032,7 @@ export default function App() {
     ].filter(Boolean).join(' '),
     [desktopDrawerCollapsed, drawerOpen]
   );
+  const appDropActive = appDragDepth > 0;
   const visibleContextStatus = useMemo(
     () => {
       if (!selectedSession || isDraftSession(selectedSession)) {
@@ -8038,7 +8059,13 @@ export default function App() {
   }
 
   return (
-    <div className={shellClass}>
+    <div
+      className={shellClass}
+      onDragEnter={handleAppDragEnter}
+      onDragOver={handleAppDragOver}
+      onDragLeave={handleAppDragLeave}
+      onDrop={handleAppDrop}
+    >
       <TopBar
         selectedProject={selectedProject}
         selectedSession={selectedSession}
@@ -8134,6 +8161,7 @@ export default function App() {
         attachments={attachments}
         onUploadFiles={handleUploadFiles}
         onRemoveAttachment={handleRemoveAttachment}
+        dropActive={appDropActive}
         fileMentions={fileMentions}
         onAddFileMention={addFileMention}
         onRemoveFileMention={removeFileMention}
