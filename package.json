@@ -1,7 +1,7 @@
 {
   "name": "codexmobile",
   "version": "0.1.0",
-  "description": "iPhone-first PWA bridge for using a local Codex setup over a private network.",
+  "description": "iPhone-first Codex PWA workbench for local sessions, queues, Git, skills, and private-network notifications.",
   "license": "MIT",
   "type": "module",
   "scripts": {

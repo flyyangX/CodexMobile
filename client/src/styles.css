@@ -4681,6 +4681,7 @@ button {
   display: flex;
   flex-direction: column;
   justify-content: center;
+  align-items: flex-start;
   padding: 28px;
   background: var(--surface);
   color: var(--text);
@@ -4704,13 +4705,52 @@ button {
 }
 
 .pairing-screen p {
-  margin: 9px 0 22px;
+  margin: 0;
   color: var(--muted);
+}
+
+.pairing-lead {
+  max-width: 410px;
+  margin-top: 10px !important;
+  font-size: 16px;
+  line-height: 1.62;
+}
+
+.pairing-points {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  max-width: 420px;
+  margin: 18px 0 20px;
+}
+
+.pairing-points span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--text);
+  background: var(--panel);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+[data-theme="dark"] .pairing-points span {
+  background: #202020;
+  border-color: #303030;
+}
+
+.pairing-note {
+  margin-bottom: 12px !important;
+  font-size: 14px;
 }
 
 .pairing-form {
   display: flex;
   gap: 10px;
+  width: min(100%, 420px);
 }
 
 .pairing-form input {

@@ -1361,7 +1361,15 @@ function PairingScreen({ onPaired }) {
         <Monitor size={30} />
       </div>
       <h1>CodexMobile</h1>
-      <p>输入电脑端启动日志里的配对码。</p>
+      <p className="pairing-lead">
+        我的本机 Codex 移动工作台。电脑继续执行，iPhone 随时接管、追问、看过程、处理确认和收完成通知。
+      </p>
+      <div className="pairing-points" aria-label="CodexMobile 核心能力">
+        <span>桌面线程同步</span>
+        <span>完整执行过程</span>
+        <span>私有网络访问</span>
+      </div>
+      <p className="pairing-note">输入电脑端启动日志里的 6 位配对码。</p>
       <form className="pairing-form" onSubmit={handlePair}>
         <input
           inputMode="numeric"

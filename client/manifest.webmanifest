@@ -1,7 +1,7 @@
 {
   "name": "CodexMobile",
   "short_name": "CodexMobile",
-  "description": "Remote Codex control for iPhone over a private network.",
+  "description": "本机 Codex 移动工作台：在 iPhone 上接管桌面线程、追问运行任务、查看完整执行过程和接收完成通知。",
   "id": "/",
   "start_url": "/",
   "scope": "/",
