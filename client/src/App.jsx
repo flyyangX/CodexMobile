@@ -68,10 +68,14 @@ import { connectionRecoveryState } from './connection-recovery.js';
 import {
   browserNotificationPermission,
   isStandalonePwa,
+  markUserInputMessageResolved,
+  mergePendingUserInputMessages,
   notificationFromPayload,
   notificationPreferenceEnabled,
   setNotificationPreferenceEnabled,
-  shouldUseWebNotification
+  shouldUseWebNotification,
+  upsertUserInputMessage,
+  userInputKey
 } from './notification-events.js';
 import {
   browserPushSupported,
@@ -1282,46 +1286,6 @@ function upsertActivityMessage(current, payload) {
     return next;
   }
   return [...current, nextMessage];
-}
-
-function userInputMessageId(payload) {
-  return `user-input-${[payload.threadId || payload.sessionId, payload.turnId, payload.itemId].filter(Boolean).join('-')}`;
-}
-
-function userInputKey(payload) {
-  return [payload.threadId || payload.sessionId, payload.turnId, payload.itemId].filter(Boolean).join(':');
-}
-
-function upsertUserInputMessage(current, payload) {
-  const id = userInputMessageId(payload);
-  const existingIndex = current.findIndex((message) => message.id === id);
-  const nextMessage = {
-    id,
-    role: 'user_input_request',
-    sessionId: payload.threadId || payload.sessionId || null,
-    threadId: payload.threadId || payload.sessionId || null,
-    turnId: payload.turnId || null,
-    itemId: payload.itemId || null,
-    questions: Array.isArray(payload.questions) ? payload.questions : [],
-    status: payload.status || 'pending',
-    timestamp: payload.timestamp || new Date().toISOString(),
-    error: payload.error || ''
-  };
-  if (existingIndex >= 0) {
-    const next = [...current];
-    next[existingIndex] = { ...current[existingIndex], ...nextMessage };
-    return next;
-  }
-  return [...current, nextMessage];
-}
-
-function markUserInputMessageResolved(current, payload) {
-  const id = userInputMessageId(payload);
-  return current.map((message) =>
-    message.id === id
-      ? { ...message, status: 'answered', error: '' }
-      : message
-  );
 }
 
 function completeStatusMessage(current, payload) {
@@ -5147,6 +5111,7 @@ export default function App() {
   const selectedProjectRef = useRef(null);
   const selectedSessionRef = useRef(null);
   const messagesRef = useRef([]);
+  const pendingUserInputsRef = useRef({});
   const autoTitleSyncRef = useRef(new Set());
   const runningByIdRef = useRef({});
   const activePollsRef = useRef(new Set());
@@ -6441,8 +6406,9 @@ export default function App() {
     try {
       const data = await apiFetch(sessionMessagesApiPath(payload.sessionId));
       if (data.messages?.length && hasVisibleAssistantForTurn(data.messages, payload)) {
+        const loadedMessages = messagesWithPendingUserInputs(data.messages, { id: payload.sessionId });
         setContextStatus((current) => mergeContextStatus(current, data.context || DEFAULT_STATUS.context, DEFAULT_STATUS.context));
-        setMessages((current) => mergeLoadedMessagesPreservingActivity(current, data.messages, payload));
+        setMessages((current) => mergeLoadedMessagesPreservingActivity(current, loadedMessages, payload));
         return true;
       }
     } catch {
@@ -6528,6 +6494,22 @@ export default function App() {
   }, [messages]);
 
   useEffect(() => {
+    pendingUserInputsRef.current = pendingUserInputs;
+  }, [pendingUserInputs]);
+
+  function messagesWithPendingUserInputs(nextMessages, session = selectedSessionRef.current) {
+    return mergePendingUserInputMessages(nextMessages || [], pendingUserInputsRef.current, session);
+  }
+
+  function updatePendingUserInputs(updater) {
+    setPendingUserInputs((current) => {
+      const next = updater(current);
+      pendingUserInputsRef.current = next;
+      return next;
+    });
+  }
+
+  useEffect(() => {
     if (!authenticated || !selectedSession?.id || isDraftSession(selectedSession)) {
       return undefined;
     }
@@ -6563,10 +6545,11 @@ export default function App() {
               desktopThreadHasAssistantAfterLocalSend(messagesRef.current, data.messages)
             );
           setContextStatus((current) => mergeContextStatus(current, data.context || DEFAULT_STATUS.context, DEFAULT_STATUS.context));
+          const loadedMessages = messagesWithPendingUserInputs(data.messages, { id: sessionId });
           setMessages((current) =>
-            messageStreamSignature(current) === messageStreamSignature(data.messages)
+            messageStreamSignature(current) === messageStreamSignature(loadedMessages)
               ? current
-              : mergeLiveSelectedThreadMessages(current, data.messages)
+              : mergeLiveSelectedThreadMessages(current, loadedMessages)
           );
           if (shouldCompleteDesktopRun) {
             completeDesktopIpcPendingRun(sessionId);
@@ -6751,7 +6734,7 @@ export default function App() {
           setContextStatus(normalizeContextStatus(refreshed.context || DEFAULT_STATUS.context, DEFAULT_STATUS.context));
           const messageData = await apiFetch(sessionMessagesApiPath(refreshed.id));
           if (selectedSessionRef.current?.id === refreshed.id) {
-            setMessages(messageData.messages || []);
+            setMessages(messagesWithPendingUserInputs(messageData.messages || [], refreshed));
             setContextStatus(
               normalizeContextStatus(messageData.context || refreshed.context || DEFAULT_STATUS.context, DEFAULT_STATUS.context)
             );
@@ -6768,7 +6751,7 @@ export default function App() {
           setContextStatus(normalizeContextStatus(next.context || DEFAULT_STATUS.context, DEFAULT_STATUS.context));
           const messageData = await apiFetch(sessionMessagesApiPath(next.id));
           if (selectedSessionRef.current?.id === next.id) {
-            setMessages(messageData.messages || []);
+            setMessages(messagesWithPendingUserInputs(messageData.messages || [], next));
             setContextStatus(normalizeContextStatus(messageData.context || next.context || DEFAULT_STATUS.context, DEFAULT_STATUS.context));
           }
         } else {
@@ -6985,7 +6968,7 @@ export default function App() {
       if (payload.type === 'user-input-request') {
         notifyFromPayload(payload);
         const key = userInputKey(payload);
-        setPendingUserInputs((current) => ({
+        updatePendingUserInputs((current) => ({
           ...current,
           [key]: { ...payload, key, status: 'pending', error: '' }
         }));
@@ -6996,7 +6979,7 @@ export default function App() {
       }
       if (payload.type === 'user-input-resolved') {
         const key = userInputKey(payload);
-        setPendingUserInputs((current) => {
+        updatePendingUserInputs((current) => {
           const next = { ...current };
           delete next[key];
           return next;
@@ -7204,7 +7187,7 @@ export default function App() {
     if (selectedSessionRef.current?.id !== requestedSessionId) {
       return;
     }
-    setMessages(data.messages || []);
+    setMessages(messagesWithPendingUserInputs(data.messages || [], session));
     setContextStatus(normalizeContextStatus(data.context || session.context || DEFAULT_STATUS.context, DEFAULT_STATUS.context));
     setDrawerOpen(false);
   }
@@ -7931,6 +7914,17 @@ export default function App() {
         answers
       }
     });
+    const key = userInputKey(message);
+    updatePendingUserInputs((current) => {
+      if (!current[key]) {
+        return current;
+      }
+      return {
+        ...current,
+        [key]: { ...current[key], status: 'answered', error: '' }
+      };
+    });
+    setMessages((current) => markUserInputMessageResolved(current, message));
   }
 
   async function submitCodexMessage({

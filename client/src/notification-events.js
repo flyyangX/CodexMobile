@@ -57,6 +57,56 @@ export function payloadNeedsUserInput(payload = {}) {
   return NEEDS_INPUT_PATTERN.test(text);
 }
 
+export function userInputMessageId(payload = {}) {
+  return `user-input-${[payload.threadId || payload.sessionId, payload.turnId, payload.itemId].filter(Boolean).join('-')}`;
+}
+
+export function userInputKey(payload = {}) {
+  return [payload.threadId || payload.sessionId, payload.turnId, payload.itemId].filter(Boolean).join(':');
+}
+
+export function upsertUserInputMessage(current = [], payload = {}) {
+  const id = userInputMessageId(payload);
+  const existingIndex = current.findIndex((message) => message.id === id);
+  const nextMessage = {
+    id,
+    role: 'user_input_request',
+    sessionId: payload.threadId || payload.sessionId || null,
+    threadId: payload.threadId || payload.sessionId || null,
+    turnId: payload.turnId || null,
+    itemId: payload.itemId || null,
+    questions: Array.isArray(payload.questions) ? payload.questions : [],
+    status: payload.status || 'pending',
+    timestamp: payload.timestamp || new Date().toISOString(),
+    error: payload.error || ''
+  };
+  if (existingIndex >= 0) {
+    const next = [...current];
+    next[existingIndex] = { ...current[existingIndex], ...nextMessage };
+    return next;
+  }
+  return [...current, nextMessage];
+}
+
+export function markUserInputMessageResolved(current = [], payload = {}) {
+  const id = userInputMessageId(payload);
+  return current.map((message) =>
+    message.id === id
+      ? { ...message, status: 'answered', error: '' }
+      : message
+  );
+}
+
+export function mergePendingUserInputMessages(messages = [], pendingUserInputs = {}, session = {}) {
+  const sessionId = session?.id || session?.sessionId || session?.threadId;
+  if (!sessionId) {
+    return messages;
+  }
+  return Object.values(pendingUserInputs || {})
+    .filter((payload) => (payload.threadId || payload.sessionId) === sessionId)
+    .reduce((nextMessages, payload) => upsertUserInputMessage(nextMessages, payload), messages);
+}
+
 export function notificationFromPayload(payload = {}) {
   if (payload.type === 'chat-complete') {
     return {

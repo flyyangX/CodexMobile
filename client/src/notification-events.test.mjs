@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  markUserInputMessageResolved,
+  mergePendingUserInputMessages,
   notificationFromPayload,
   payloadNeedsUserInput,
   shouldUseWebNotification
@@ -40,4 +42,56 @@ test('notificationFromPayload warns for explicit user input requests', () => {
 
   assert.equal(notification.level, 'warning');
   assert.equal(notification.title, '需要处理');
+});
+
+test('mergePendingUserInputMessages injects pending cards for the selected session', () => {
+  const messages = [{ id: 'assistant-1', role: 'assistant', content: '先前回复' }];
+  const pending = {
+    'thread-2:turn-2:item-2': {
+      type: 'user-input-request',
+      threadId: 'thread-2',
+      turnId: 'turn-2',
+      itemId: 'item-2',
+      questions: [{ id: 'choice', question: '选择方案' }]
+    },
+    'thread-1:turn-1:item-1': {
+      type: 'user-input-request',
+      threadId: 'thread-1',
+      turnId: 'turn-1',
+      itemId: 'item-1',
+      questions: [{ id: 'approval', question: '继续吗' }]
+    }
+  };
+
+  const merged = mergePendingUserInputMessages(messages, pending, { id: 'thread-1' });
+
+  assert.deepEqual(merged.map((message) => message.id), [
+    'assistant-1',
+    'user-input-thread-1-turn-1-item-1'
+  ]);
+  assert.equal(merged[1].role, 'user_input_request');
+  assert.equal(merged[1].status, 'pending');
+});
+
+test('markUserInputMessageResolved marks a submitted card answered locally', () => {
+  const messages = [
+    {
+      id: 'user-input-thread-1-turn-1-item-1',
+      role: 'user_input_request',
+      threadId: 'thread-1',
+      turnId: 'turn-1',
+      itemId: 'item-1',
+      status: 'pending',
+      error: 'old'
+    }
+  ];
+
+  const next = markUserInputMessageResolved(messages, {
+    threadId: 'thread-1',
+    turnId: 'turn-1',
+    itemId: 'item-1'
+  });
+
+  assert.equal(next[0].status, 'answered');
+  assert.equal(next[0].error, '');
 });
