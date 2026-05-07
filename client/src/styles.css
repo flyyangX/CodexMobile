@@ -3642,6 +3642,26 @@ button {
   overflow: visible;
 }
 
+.composer-drop-overlay {
+  position: absolute;
+  inset: 7px 12px calc(env(safe-area-inset-bottom, 0px) + 8px);
+  z-index: 70;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1px dashed rgba(37, 99, 235, 0.48);
+  border-radius: 24px;
+  color: var(--accent);
+  background: rgba(231, 239, 255, 0.88);
+  box-shadow: var(--soft-shadow);
+  pointer-events: none;
+}
+
+[data-theme="dark"] .composer-drop-overlay {
+  background: rgba(37, 99, 235, 0.18);
+}
+
 [data-keyboard="open"] .composer-wrap {
   padding-bottom: 2px;
 }
@@ -4800,7 +4820,7 @@ button {
   }
 }
 
-@media (min-width: 820px) {
+@media (min-width: 820px) and (max-width: 1023.98px) {
   body {
     display: grid;
     place-items: center;
@@ -4830,6 +4850,149 @@ button {
     border-left-color: #303030;
     border-right-color: #303030;
     box-shadow: 0 24px 80px rgba(0, 0, 0, 0.42);
+  }
+}
+
+@media (min-width: 1024px) {
+  body {
+    display: block;
+    background: var(--surface);
+  }
+
+  #root {
+    width: 100%;
+    height: var(--app-height, 100dvh);
+    border: 0;
+    box-shadow: none;
+  }
+
+  .app-shell {
+    position: fixed;
+    display: grid;
+    grid-template-columns: 320px minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    grid-template-areas:
+      "drawer top"
+      "drawer chat"
+      "drawer composer";
+    width: 100vw;
+    max-width: 100vw;
+    height: var(--app-height, 100dvh);
+    transition: grid-template-columns 180ms ease;
+  }
+
+  .app-shell.desktop-drawer-collapsed {
+    grid-template-columns: 0 minmax(0, 1fr);
+  }
+
+  .top-bar {
+    grid-area: top;
+    padding: 12px 24px 10px;
+  }
+
+  .drawer-backdrop {
+    display: none;
+  }
+
+  .drawer {
+    grid-area: drawer;
+    position: relative;
+    top: auto;
+    bottom: auto;
+    left: auto;
+    width: 100%;
+    min-width: 0;
+    height: 100%;
+    padding: 18px 16px;
+    border-right: 1px solid var(--hairline);
+    background: rgba(250, 251, 250, 0.94);
+    box-shadow: none;
+    transform: none;
+    transition: opacity 140ms ease;
+    z-index: 15;
+  }
+
+  [data-theme="dark"] .drawer {
+    background: rgba(26, 26, 27, 0.96);
+  }
+
+  .app-shell.desktop-drawer-collapsed .drawer {
+    width: 0;
+    padding-right: 0;
+    padding-left: 0;
+    border-right: 0;
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .drawer-header .icon-button,
+  .drawer-subheader .icon-button:last-child {
+    display: none;
+  }
+
+  .chat-pane {
+    grid-area: chat;
+    max-width: none;
+    padding: 24px 24px 18px;
+  }
+
+  .chat-content {
+    max-width: 1040px;
+  }
+
+  .message-stack {
+    max-width: min(78%, 760px);
+  }
+
+  .message-row.is-assistant .message-stack {
+    max-width: 100%;
+  }
+
+  .composer-wrap {
+    grid-area: composer;
+    max-width: none;
+    padding: 8px 24px 18px;
+  }
+
+  .composer-wrap > .queued-drafts-panel,
+  .composer-wrap > .composer-run-status,
+  .composer-wrap > .composer {
+    width: min(1040px, 100%);
+    margin-right: auto;
+    margin-left: auto;
+  }
+
+  .composer-drop-overlay {
+    inset: 8px max(24px, calc((100vw - 1040px) / 2)) 18px;
+    width: min(1040px, calc(100% - 48px));
+    margin-right: auto;
+    margin-left: auto;
+  }
+
+  .shortcut-menu {
+    right: max(24px, calc((100vw - 1040px) / 2));
+    left: max(24px, calc((100vw - 1040px) / 2));
+  }
+
+  .attach-menu {
+    left: max(24px, calc((100vw - 1040px) / 2));
+  }
+
+  .permission-menu {
+    left: max(66px, calc((100vw - 1040px) / 2 + 42px));
+  }
+
+  .skill-menu {
+    left: max(118px, calc((100vw - 1040px) / 2 + 94px));
+  }
+
+  .model-menu,
+  .send-mode-menu {
+    right: max(24px, calc((100vw - 1040px) / 2));
+  }
+
+  .context-popover {
+    right: max(108px, calc((100vw - 1040px) / 2 + 84px));
   }
 }
 
