@@ -91,6 +91,67 @@ test('chat service reports missing pending user input requests', () => {
   assert.equal(result.reason, 'not-found');
 });
 
+test('chat service clears pending user input requests when turn cleanup runs', async () => {
+  let cleanupType = null;
+  let resolved = null;
+  const requestMessage = {
+    id: 10,
+    method: 'item/tool/requestUserInput',
+    params: {
+      threadId: 'thread-1',
+      turnId: 'turn-1',
+      itemId: 'input-1',
+      questions: [{
+        id: 'choice',
+        header: '方案',
+        question: '继续吗？',
+        isOther: false,
+        isSecret: false,
+        options: [{ label: '继续', description: '' }]
+      }]
+    }
+  };
+  const { service } = makeChatService({
+    getDesktopBridgeStatus: async () => ({
+      strict: false,
+      connected: true,
+      mode: 'headless-local',
+      capabilities: { read: true, createThread: true, sendToOpenDesktopThread: false }
+    }),
+    runCodexTurn: async (payload, emit) => {
+      cleanupType = typeof payload.onUserInputCleanup;
+      payload.onUserInputRequest(requestMessage, (answer) => {
+        resolved = answer;
+      });
+      if (typeof payload.onUserInputCleanup === 'function') {
+        payload.onUserInputCleanup({ threadId: 'thread-1', turnId: 'turn-1' });
+      }
+      emit({ type: 'chat-error', sessionId: 'thread-1', turnId: 'turn-1', error: 'cancelled' });
+      return 'thread-1';
+    }
+  });
+
+  await service.sendChat({
+    projectId: 'project-1',
+    sessionId: 'thread-1',
+    clientTurnId: 'turn-1',
+    message: '需要选择'
+  });
+  await flushQueuedWork();
+
+  const late = service.respondToUserInput({
+    threadId: 'thread-1',
+    turnId: 'turn-1',
+    itemId: 'input-1',
+    answers: { choice: { answers: ['继续'] } }
+  });
+
+  assert.equal(cleanupType, 'function');
+  assert.equal(late.ok, false);
+  assert.equal(late.reason, 'not-found');
+  assert.equal(resolved, null);
+});
+
 test('sendChat routes running input through desktop turn/steer', async () => {
   let steerPayload = null;
   const { service, broadcasts } = makeChatService({

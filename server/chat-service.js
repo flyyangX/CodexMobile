@@ -559,6 +559,7 @@ export function createChatService({
         collaborationMode: job.collaborationMode,
         permissionMode: job.permissionMode,
         onUserInputRequest: handleUserInputRequest,
+        onUserInputCleanup: clearUserInputRequestsForTurn,
         turnId: job.turnId
       },
       (payload) => {
@@ -1130,6 +1131,10 @@ export function createChatService({
       timestamp
     });
     return { key, request };
+  }
+
+  function clearUserInputRequestsForTurn({ threadId, turnId } = {}) {
+    pendingUserInputs.clearForTurn({ threadId, turnId });
   }
 
   function respondToUserInput(body = {}) {

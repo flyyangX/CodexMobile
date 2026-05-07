@@ -757,7 +757,7 @@ function abortError() {
   return error;
 }
 
-export async function runCodexTurn({ sessionId, draftSessionId, projectPath, message, attachments = [], selectedSkills = [], model, reasoningEffort, collaborationMode = null, permissionMode, onUserInputRequest = null, turnId: providedTurnId }, emit) {
+export async function runCodexTurn({ sessionId, draftSessionId, projectPath, message, attachments = [], selectedSkills = [], model, reasoningEffort, collaborationMode = null, permissionMode, onUserInputRequest = null, onUserInputCleanup = null, turnId: providedTurnId }, emit) {
   const workingDirectory = await ensureAsciiWorkingDirectory(projectPath);
   const { sandboxMode, approvalPolicy } = mapPermissionMode(permissionMode);
   const feishuSkillKeys = detectFeishuSkillKeys(message);
@@ -806,6 +806,28 @@ export async function runCodexTurn({ sessionId, draftSessionId, projectPath, mes
   let turnTimeoutTimer = null;
   let turnInactivityTimeoutTimer = null;
   let resetTurnInactivityTimeout = () => {};
+  const pendingUserInputServerRequests = new Map();
+
+  function userInputServerRequestKey(request) {
+    return [request?.threadId, request?.turnId, request?.itemId].filter(Boolean).join(':');
+  }
+
+  async function cancelPendingUserInputServerRequests() {
+    if (!pendingUserInputServerRequests.size) {
+      return;
+    }
+    const fallback = defaultServerRequestResult({ method: 'item/tool/requestUserInput' });
+    for (const [key, pending] of pendingUserInputServerRequests.entries()) {
+      pendingUserInputServerRequests.delete(key);
+      try {
+        onUserInputCleanup?.(pending.request);
+      } catch (error) {
+        console.warn('[codex] Failed to clear pending user input request:', error.message);
+      }
+      pending.resolve(fallback);
+    }
+    await Promise.resolve();
+  }
 
   try {
     if (larkCliContext.enabled && larkCliContext.env) {
@@ -822,7 +844,21 @@ export async function runCodexTurn({ sessionId, draftSessionId, projectPath, mes
         resetTurnInactivityTimeout();
         if (appMessage.method === 'item/tool/requestUserInput' && onUserInputRequest) {
           return new Promise((resolve) => {
-            onUserInputRequest(appMessage, resolve);
+            let key = null;
+            const resolveOnce = (result) => {
+              if (key) {
+                pendingUserInputServerRequests.delete(key);
+              }
+              resolve(result);
+            };
+            const pending = onUserInputRequest(appMessage, resolveOnce);
+            key = userInputServerRequestKey(pending?.request);
+            if (key) {
+              pendingUserInputServerRequests.set(key, {
+                request: pending.request,
+                resolve: resolveOnce
+              });
+            }
           });
         }
         return defaultServerRequestResult(appMessage);
@@ -1025,6 +1061,7 @@ export async function runCodexTurn({ sessionId, draftSessionId, projectPath, mes
     if (turnInactivityTimeoutTimer) {
       clearTimeout(turnInactivityTimeoutTimer);
     }
+    await cancelPendingUserInputServerRequests();
     if (client) {
       client.close();
     }
