@@ -926,6 +926,17 @@ async function handleApi(req, res, url) {
     return;
   }
 
+  if (method === 'POST' && pathname === '/api/chat/user-input/respond') {
+    const body = await readBody(req);
+    try {
+      const result = chatService.respondToUserInput(body);
+      sendJson(res, result.ok ? 200 : 404, result.ok ? { accepted: true } : { error: 'User input request not found' });
+    } catch (error) {
+      sendJson(res, error.statusCode || 500, { error: error.message || 'Failed to submit user input' });
+    }
+    return;
+  }
+
   if (method === 'POST' && pathname === '/api/chat/abort') {
     const body = await readBody(req);
     const aborted = chatService.abortChat(body, { remoteAddress: remoteAddress(req) });
