@@ -111,7 +111,7 @@ test('chat service clears pending user input requests when turn cleanup runs', a
       }]
     }
   };
-  const { service } = makeChatService({
+  const { service, broadcasts } = makeChatService({
     getDesktopBridgeStatus: async () => ({
       strict: false,
       connected: true,
@@ -147,6 +147,22 @@ test('chat service clears pending user input requests when turn cleanup runs', a
   });
 
   assert.equal(cleanupType, 'function');
+  assert.deepEqual(
+    broadcasts.filter((payload) => payload.type === 'user-input-resolved').map((payload) => ({
+      threadId: payload.threadId,
+      turnId: payload.turnId,
+      itemId: payload.itemId,
+      status: payload.status,
+      reason: payload.reason
+    })),
+    [{
+      threadId: 'thread-1',
+      turnId: 'turn-1',
+      itemId: 'input-1',
+      status: 'cancelled',
+      reason: 'turn-cleanup'
+    }]
+  );
   assert.equal(late.ok, false);
   assert.equal(late.reason, 'not-found');
   assert.equal(resolved, null);

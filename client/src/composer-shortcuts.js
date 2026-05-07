@@ -101,6 +101,17 @@ export function migrateComposerMode(modesBySession, sourceSessionIds, targetSess
   return next;
 }
 
+export function threadStartedComposerModeSourceIds(currentSession, payload = {}) {
+  const sourceIds = [];
+  if (payload.previousSessionId) {
+    sourceIds.push(payload.previousSessionId);
+  }
+  if (currentSession?.turnId && payload.turnId && currentSession.turnId === payload.turnId && currentSession.id) {
+    sourceIds.push(currentSession.id);
+  }
+  return [...new Set(sourceIds.filter((id) => id && id !== payload.sessionId))];
+}
+
 export function filteredSlashCommands(query, commands = SLASH_COMMANDS) {
   const normalized = String(query || '').trim().toLowerCase();
   if (!normalized) {

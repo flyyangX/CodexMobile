@@ -1134,7 +1134,21 @@ export function createChatService({
   }
 
   function clearUserInputRequestsForTurn({ threadId, turnId } = {}) {
-    pendingUserInputs.clearForTurn({ threadId, turnId });
+    const cleared = pendingUserInputs.clearForTurn({ threadId, turnId });
+    const timestamp = new Date().toISOString();
+    for (const request of cleared) {
+      broadcast({
+        type: 'user-input-resolved',
+        threadId: request.threadId,
+        sessionId: request.threadId,
+        turnId: request.turnId,
+        itemId: request.itemId,
+        status: 'cancelled',
+        reason: 'turn-cleanup',
+        timestamp
+      });
+    }
+    return cleared;
   }
 
   function respondToUserInput(body = {}) {

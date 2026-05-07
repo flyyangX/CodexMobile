@@ -80,6 +80,15 @@ export function upsertUserInputMessage(current = [], payload = {}) {
     timestamp: payload.timestamp || new Date().toISOString(),
     error: payload.error || ''
   };
+  if (payload.conversationId) {
+    nextMessage.conversationId = payload.conversationId;
+  }
+  if (payload.transport) {
+    nextMessage.transport = payload.transport;
+  }
+  if (payload.delivery) {
+    nextMessage.delivery = payload.delivery;
+  }
   if (existingIndex >= 0) {
     const next = [...current];
     next[existingIndex] = { ...current[existingIndex], ...nextMessage };

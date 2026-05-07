@@ -32,6 +32,18 @@ export function normalizeUserInputRequest(message = {}) {
       })).filter((question) => question.id)
       : []
   };
+  const conversationId = stringOrEmpty(params.conversationId || message.conversationId);
+  if (conversationId) {
+    request.conversationId = conversationId;
+  }
+  const transport = stringOrEmpty(params.transport || message.transport);
+  if (transport) {
+    request.transport = transport;
+  }
+  const delivery = stringOrEmpty(params.delivery || message.delivery);
+  if (delivery) {
+    request.delivery = delivery;
+  }
   if (!request.threadId || !request.turnId || !request.itemId || !request.questions.length) {
     throw new Error('Malformed user input request');
   }
@@ -52,6 +64,20 @@ export function normalizeUserInputAnswers(value = {}) {
     };
   }
   return { answers };
+}
+
+export function normalizeDesktopUserInputSubmission(body = {}) {
+  const conversationId = stringOrEmpty(body.conversationId);
+  if (!conversationId) {
+    return null;
+  }
+  return {
+    conversationId,
+    threadId: stringOrEmpty(body.threadId || body.sessionId),
+    turnId: stringOrEmpty(body.turnId),
+    itemId: stringOrEmpty(body.itemId),
+    response: normalizeUserInputAnswers(body.answers || body.response || {})
+  };
 }
 
 export class PendingUserInputRequests {
@@ -95,13 +121,20 @@ export class PendingUserInputRequests {
   }
 
   clearForTurn({ threadId, turnId } = {}) {
+    const cleared = [];
     for (const [key, record] of this.records.entries()) {
       if (
         (!threadId || record.request.threadId === threadId) &&
         (!turnId || record.request.turnId === turnId)
       ) {
         this.records.delete(key);
+        cleared.push({
+          ...record.request,
+          key: record.key,
+          createdAt: record.createdAt
+        });
       }
     }
+    return cleared;
   }
 }

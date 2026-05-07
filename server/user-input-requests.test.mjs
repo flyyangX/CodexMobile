@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   PendingUserInputRequests,
+  normalizeDesktopUserInputSubmission,
   normalizeUserInputAnswers,
   normalizeUserInputRequest
 } from './user-input-requests.js';
@@ -54,6 +55,23 @@ test('normalizeUserInputAnswers returns the official response envelope', () => {
   });
 });
 
+test('normalizeDesktopUserInputSubmission builds an explicit desktop fallback payload', () => {
+  assert.deepEqual(normalizeDesktopUserInputSubmission({
+    conversationId: 'conversation-1',
+    threadId: 'thread-1',
+    turnId: 'turn-1',
+    itemId: 'input-1',
+    answers: { choice: { answers: ['A'] } }
+  }), {
+    conversationId: 'conversation-1',
+    threadId: 'thread-1',
+    turnId: 'turn-1',
+    itemId: 'input-1',
+    response: { answers: { choice: { answers: ['A'] } } }
+  });
+  assert.equal(normalizeDesktopUserInputSubmission({ threadId: 'thread-1' }), null);
+});
+
 test('PendingUserInputRequests resolves a stored request once', async () => {
   const store = new PendingUserInputRequests({ now: () => 123 });
   let resolved = null;
@@ -73,6 +91,21 @@ test('PendingUserInputRequests resolves a stored request once', async () => {
 
   assert.equal(answered.ok, true);
   assert.deepEqual(resolved, { answers: { choice: { answers: ['A'] } } });
+  assert.equal(store.list().length, 0);
+});
+
+test('PendingUserInputRequests clearForTurn returns cleared requests', () => {
+  const store = new PendingUserInputRequests({ now: () => 123 });
+  store.add(requestMessage, () => {});
+  store.add({
+    ...requestMessage,
+    params: { ...requestMessage.params, itemId: 'input-2' }
+  }, () => {});
+
+  const cleared = store.clearForTurn({ threadId: 'thread-1', turnId: 'turn-1' });
+
+  assert.deepEqual(cleared.map((request) => request.itemId), ['input-1', 'input-2']);
+  assert.equal(cleared[0].key, 'thread-1:turn-1:input-1');
   assert.equal(store.list().length, 0);
 });
 

@@ -5,7 +5,8 @@ import {
   mergePendingUserInputMessages,
   notificationFromPayload,
   payloadNeedsUserInput,
-  shouldUseWebNotification
+  shouldUseWebNotification,
+  upsertUserInputMessage
 } from './notification-events.js';
 
 test('notificationFromPayload creates completion and failure toasts', () => {
@@ -71,6 +72,23 @@ test('mergePendingUserInputMessages injects pending cards for the selected sessi
   ]);
   assert.equal(merged[1].role, 'user_input_request');
   assert.equal(merged[1].status, 'pending');
+});
+
+test('upsertUserInputMessage preserves explicit desktop metadata', () => {
+  const next = upsertUserInputMessage([], {
+    type: 'user-input-request',
+    threadId: 'thread-1',
+    turnId: 'turn-1',
+    itemId: 'item-1',
+    conversationId: 'conversation-1',
+    transport: 'desktop-ipc',
+    delivery: 'desktop-ipc',
+    questions: [{ id: 'choice', question: '选择方案' }]
+  });
+
+  assert.equal(next[0].conversationId, 'conversation-1');
+  assert.equal(next[0].transport, 'desktop-ipc');
+  assert.equal(next[0].delivery, 'desktop-ipc');
 });
 
 test('markUserInputMessageResolved marks a submitted card answered locally', () => {

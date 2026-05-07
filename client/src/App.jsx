@@ -62,6 +62,7 @@ import {
   migrateComposerMode,
   normalizeComposerMode,
   selectedComposerModeForSession,
+  threadStartedComposerModeSourceIds,
   replaceComposerToken
 } from './composer-shortcuts.js';
 import { connectionRecoveryState } from './connection-recovery.js';
@@ -6911,6 +6912,9 @@ export default function App() {
               : message
           )
         );
+        setComposerModesBySession((current) =>
+          migrateComposerMode(current, threadStartedComposerModeSourceIds(currentSession, payload), payload.sessionId)
+        );
         return;
       }
       if (payload.type === 'message-deleted') {
@@ -7921,16 +7925,20 @@ export default function App() {
   }
 
   async function submitUserInput(message, answers) {
+    const body = {
+      projectId: selectedProjectRef.current?.id || selectedProject?.id || null,
+      sessionId: message.threadId || message.sessionId,
+      threadId: message.threadId || message.sessionId,
+      turnId: message.turnId,
+      itemId: message.itemId,
+      answers
+    };
+    if (message.conversationId) {
+      body.conversationId = message.conversationId;
+    }
     await apiFetch('/api/chat/user-input/respond', {
       method: 'POST',
-      body: {
-        projectId: selectedProjectRef.current?.id || selectedProject?.id || null,
-        sessionId: message.threadId || message.sessionId,
-        threadId: message.threadId || message.sessionId,
-        turnId: message.turnId,
-        itemId: message.itemId,
-        answers
-      }
+      body
     });
     const key = userInputKey(message);
     updatePendingUserInputs((current) => {

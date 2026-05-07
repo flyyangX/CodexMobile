@@ -5,6 +5,7 @@ import {
   detectComposerToken,
   filteredSlashCommands,
   migrateComposerMode,
+  threadStartedComposerModeSourceIds,
   selectedComposerModeForSession,
   replaceComposerToken
 } from './composer-shortcuts.js';
@@ -69,5 +70,22 @@ test('migrateComposerMode preserves unrelated session modes', () => {
   assert.deepEqual(
     migrateComposerMode({ 'draft-a': 'plan', 'session-b': 'plan' }, ['draft-a', 'draft-a', 'session-b'], 'real-a'),
     { 'session-b': 'plan', 'real-a': 'plan' }
+  );
+});
+
+test('threadStartedComposerModeSourceIds only includes sessions tied to the resolving turn', () => {
+  assert.deepEqual(
+    threadStartedComposerModeSourceIds(
+      { id: 'draft-1', turnId: 'turn-1' },
+      { previousSessionId: 'draft-1', sessionId: 'real-1', turnId: 'turn-1' }
+    ),
+    ['draft-1']
+  );
+  assert.deepEqual(
+    threadStartedComposerModeSourceIds(
+      { id: 'selected-background', turnId: 'turn-other' },
+      { previousSessionId: 'draft-background', sessionId: 'real-1', turnId: 'turn-1' }
+    ),
+    ['draft-background']
   );
 });
