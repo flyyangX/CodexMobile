@@ -97,9 +97,7 @@ export function migrateComposerMode(modesBySession, sourceSessionIds, targetSess
     return current;
   }
   const next = { ...current, [targetSessionId]: normalizeComposerMode(current[sourceId]) };
-  sourceIds.forEach((id) => {
-    delete next[id];
-  });
+  delete next[sourceId];
   return next;
 }
 

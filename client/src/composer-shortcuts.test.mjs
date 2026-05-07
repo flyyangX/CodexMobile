@@ -64,3 +64,10 @@ test('migrateComposerMode carries draft mode to the real session id', () => {
     { other: 'chat', 'real-1': 'plan' }
   );
 });
+
+test('migrateComposerMode preserves unrelated session modes', () => {
+  assert.deepEqual(
+    migrateComposerMode({ 'draft-a': 'plan', 'session-b': 'plan' }, ['draft-a', 'draft-a', 'session-b'], 'real-a'),
+    { 'session-b': 'plan', 'real-a': 'plan' }
+  );
+});

@@ -7408,7 +7408,7 @@ export default function App() {
       )
     );
     setComposerModesBySession((current) =>
-      migrateComposerMode(current, [previousSessionId, optimisticSessionId, currentSession?.id], realSessionId)
+      migrateComposerMode(current, [previousSessionId, optimisticSessionId], realSessionId)
     );
     if (turn.status === 'running' || turn.status === 'queued') {
       markRun({ turnId: turn.turnId, sessionId: realSessionId, previousSessionId: previousSessionId || optimisticSessionId });
