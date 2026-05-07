@@ -1147,7 +1147,7 @@ export function createChatService({
       itemId: request.itemId,
       timestamp
     });
-    return { ok: true, ...request };
+    return result;
   }
 
   return {

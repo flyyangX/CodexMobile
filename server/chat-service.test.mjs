@@ -71,6 +71,8 @@ test('chat service stores and answers pending user input requests', async () => 
   });
 
   assert.equal(result.ok, true);
+  assert.equal(result.request.itemId, 'input-1');
+  assert.equal(result.itemId, undefined);
   assert.deepEqual(resolved, { answers: { choice: { answers: ['A'] } } });
   assert.equal(broadcasts.some((payload) => payload.type === 'user-input-resolved'), true);
 });
