@@ -71,48 +71,6 @@ export function parseMultipartFile(buffer, contentType, fieldName = 'file') {
   throw new Error('No file field found');
 }
 
-export async function readVoiceUpload(req, {
-  maxVoiceBytes = 10 * 1024 * 1024
-} = {}) {
-  const contentType = req.headers['content-type'] || '';
-  if (!contentType.toLowerCase().startsWith('multipart/form-data')) {
-    const error = new Error('multipart/form-data is required');
-    error.statusCode = 400;
-    throw error;
-  }
-
-  let body;
-  try {
-    body = await readBuffer(req, maxVoiceBytes);
-  } catch (error) {
-    const next = new Error(error.message === 'Upload too large' ? '音频超过 10MB' : '读取音频失败');
-    next.statusCode = error.message === 'Upload too large' ? 413 : 400;
-    throw next;
-  }
-
-  let part;
-  try {
-    part = parseMultipartFile(body, contentType, 'audio');
-  } catch {
-    const error = new Error('没有收到音频');
-    error.statusCode = 400;
-    throw error;
-  }
-
-  if (!part.data?.length) {
-    const error = new Error('没有收到音频');
-    error.statusCode = 400;
-    throw error;
-  }
-  if (!String(part.mimeType || '').toLowerCase().startsWith('audio/')) {
-    const error = new Error('音频格式不支持');
-    error.statusCode = 400;
-    throw error;
-  }
-
-  return part;
-}
-
 export async function saveUpload(req, {
   uploadRoot,
   maxUploadBytes = 50 * 1024 * 1024

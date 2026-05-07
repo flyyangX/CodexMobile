@@ -13,7 +13,6 @@
     "start:bg": "node scripts/start-server.mjs",
     "mac:autostart": "node scripts/install-macos-autostart.mjs",
     "mac:autostart:remove": "node scripts/install-macos-autostart.mjs --uninstall",
-    "asr:start": "node scripts/start-asr.mjs",
     "postinstall": "node scripts/patch-codex-sdk.mjs",
     "smoke": "node scripts/smoke.mjs"
   },

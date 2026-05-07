@@ -36,7 +36,9 @@ export function connectionRecoveryState({
     };
   }
 
-  if (syncing) {
+  const desktopBridgeHealthy = desktopBridge?.connected === true && desktopBridge?.mode !== 'unavailable';
+
+  if (syncing && !desktopBridgeHealthy) {
     return {
       state: 'syncing',
       title: '正在同步',

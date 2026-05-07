@@ -74,9 +74,3 @@ export function websocketUrl() {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   return `${protocol}//${window.location.host}/ws?token=${token}`;
 }
-
-export function realtimeVoiceWebsocketUrl() {
-  const token = encodeURIComponent(getToken());
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  return `${protocol}//${window.location.host}/ws/realtime?token=${token}`;
-}

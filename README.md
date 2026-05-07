@@ -25,9 +25,9 @@ CodexMobile 是我给自己做的 Codex 移动工作台：电脑继续作为真�
 
 ## 界面演示
 
-| 项目抽屉 | 对话与模型选择 | 移动端执行状态 |
-| --- | --- | --- |
-| <img src="docs/images/ios-drawer.png" width="260" alt="CodexMobile 项目抽屉" /> | <img src="docs/images/ios-chat.png" width="260" alt="CodexMobile 对话界面" /> | <img src="docs/images/voice-handoff.jpg" width="260" alt="CodexMobile 移动端执行状态" /> |
+| 项目抽屉 | 对话与模型选择 |
+| --- | --- |
+| <img src="docs/images/ios-drawer.png" width="260" alt="CodexMobile 项目抽屉" /> | <img src="docs/images/ios-chat.png" width="260" alt="CodexMobile 对话界面" /> |
 
 ## 核心能力
 
@@ -86,10 +86,6 @@ CodexMobile 是我给自己做的 Codex 移动工作台：电脑继续作为真�
 
 - 本地 Codex SDK 发送和续聊。
 - OpenAI 兼容接口图片生成，结果保存到 `.codexmobile/generated`。
-- 本地 SenseVoice / FunASR 中文语音识别。
-- 可选 OpenAI 兼容转写接口。
-- 可选 Edge TTS / OpenAI 兼容 TTS。
-- 可选 DashScope / OpenAI 兼容实时语音代理。
 - 可选 CLIProxyAPI Codex 额度查询。
 - 可选飞书 `lark-cli` 集成，用本机授权创建、读取和修改文档、PPT、表格和云空间文件。
 
@@ -110,7 +106,7 @@ CodexMobile Node.js bridge
   |-- Git service: status, diff, pull, sync, commit, push, commit+push
   |-- Push service: VAPID keys, subscriptions, Web Push notifications
   |-- Upload/static service: local uploads, generated images, safe local-image serving
-  |-- Optional integrations: lark-cli, CLIProxyAPI, ASR, TTS, realtime voice
+  |-- Optional integrations: lark-cli, CLIProxyAPI
 ```
 
 ## 环境要求
@@ -120,7 +116,6 @@ CodexMobile Node.js bridge
 - 已配置好的本机 Codex 环境，默认读取 `~/.codex`
 - 手机和电脑在同一个可信私有网络中，例如 Tailscale 或局域网
 - 可选：Tailscale Serve，用于 iOS PWA 后台通知所需的 HTTPS
-- 可选：Docker Desktop，用于本地 SenseVoice ASR
 - 可选：CLIProxyAPI，用于 OpenAI 兼容路由、图片生成或额度查询
 - 可选：`lark-cli`，用于飞书文档、PPT、表格和云空间集成
 
@@ -225,7 +220,6 @@ npm run start:env
 - `npm run start:bg`：后台启动服务，日志写入 `.codexmobile`
 - `npm run mac:autostart`：安装 macOS 用户级 LaunchAgent，开机后保持本地桥接服务运行
 - `npm run mac:autostart:remove`：移除 macOS LaunchAgent
-- `npm run asr:start`：构建并启动本地 SenseVoice ASR Docker 容器
 - `npm run smoke`：检查本机 `/api/status`
 
 ## 开发和测试
@@ -284,8 +278,6 @@ npm run build
 - `POST /api/notifications/subscribe`
 - `POST /api/notifications/unsubscribe`
 - `GET /api/quotas/codex`
-- `POST /api/voice/transcribe`
-- `POST /api/voice/speech`
 - `GET /api/feishu/status`
 
 ## 私有网络部署建议

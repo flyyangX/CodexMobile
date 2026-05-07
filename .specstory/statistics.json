@@ -1,0 +1,139 @@
+{
+  "sessions": {
+    "019df40a-6db8-7b93-ba6a-1462c305f60c": {
+      "user_message_count": 43,
+      "agent_message_count": 1121,
+      "start_timestamp": "2026-05-04T17:30:50.807Z",
+      "end_timestamp": "2026-05-04T23:47:08.321Z",
+      "markdown_size_bytes": 1923028,
+      "provider": "codex-cli",
+      "last_updated": "2026-05-07T14:45:08Z"
+    },
+    "019df424-f8f2-7053-b2a6-79f9ef858414": {
+      "user_message_count": 5,
+      "agent_message_count": 90,
+      "start_timestamp": "2026-05-04T17:59:38.059Z",
+      "end_timestamp": "2026-05-04T18:48:31.727Z",
+      "markdown_size_bytes": 145825,
+      "provider": "codex-cli",
+      "last_updated": "2026-05-07T14:45:08Z"
+    },
+    "019df454-f643-7f02-b8a4-e57fc2df9b76": {
+      "user_message_count": 9,
+      "agent_message_count": 261,
+      "start_timestamp": "2026-05-04T18:51:55.184Z",
+      "end_timestamp": "2026-05-04T19:28:30.836Z",
+      "markdown_size_bytes": 476079,
+      "provider": "codex-cli",
+      "last_updated": "2026-05-07T14:45:04Z"
+    },
+    "019df474-7018-7a50-bf6a-d4d0033b5c6f": {
+      "user_message_count": 6,
+      "agent_message_count": 329,
+      "start_timestamp": "2026-05-04T19:26:39.004Z",
+      "end_timestamp": "2026-05-04T19:57:19.190Z",
+      "markdown_size_bytes": 603783,
+      "provider": "codex-cli",
+      "last_updated": "2026-05-07T14:45:04Z"
+    },
+    "019df51f-4c3b-77d0-b513-e81612a6d20d": {
+      "user_message_count": 13,
+      "agent_message_count": 169,
+      "start_timestamp": "2026-05-04T22:32:49.984Z",
+      "end_timestamp": "2026-05-04T23:02:24.805Z",
+      "markdown_size_bytes": 324348,
+      "provider": "codex-cli",
+      "last_updated": "2026-05-07T14:45:04Z"
+    },
+    "019df563-bbdd-7881-9f43-d8d66ca1c04d": {
+      "user_message_count": 1,
+      "agent_message_count": 64,
+      "start_timestamp": "2026-05-04T23:49:31.656Z",
+      "end_timestamp": "2026-05-04T23:53:14.339Z",
+      "markdown_size_bytes": 140472,
+      "provider": "codex-cli",
+      "last_updated": "2026-05-07T14:45:04Z"
+    },
+    "019df564-952d-78c0-a4be-dbfbdbdc8708": {
+      "user_message_count": 34,
+      "agent_message_count": 302,
+      "start_timestamp": "2026-05-04T23:48:28.468Z",
+      "end_timestamp": "2026-05-05T06:55:54.560Z",
+      "markdown_size_bytes": 477306,
+      "provider": "codex-cli",
+      "last_updated": "2026-05-07T14:45:09Z"
+    },
+    "019df57a-d854-73d1-8bec-a9d15f8453c2": {
+      "user_message_count": 3,
+      "agent_message_count": 127,
+      "start_timestamp": "2026-05-05T00:13:12.106Z",
+      "end_timestamp": "2026-05-05T00:25:11.783Z",
+      "markdown_size_bytes": 234826,
+      "provider": "codex-cli",
+      "last_updated": "2026-05-07T14:45:09Z"
+    },
+    "019df6b9-c5d1-70b3-b4d1-fb1f8cfe3e02": {
+      "user_message_count": 6,
+      "agent_message_count": 172,
+      "start_timestamp": "2026-05-05T06:01:09.339Z",
+      "end_timestamp": "2026-05-05T06:45:28.994Z",
+      "markdown_size_bytes": 312300,
+      "provider": "codex-cli",
+      "last_updated": "2026-05-07T14:45:04Z"
+    },
+    "019df7ec-42b4-7602-94d6-e06d2430e6c0": {
+      "user_message_count": 5,
+      "agent_message_count": 94,
+      "start_timestamp": "2026-05-05T11:36:10.518Z",
+      "end_timestamp": "2026-05-05T12:01:30.126Z",
+      "markdown_size_bytes": 235040,
+      "provider": "codex-cli",
+      "last_updated": "2026-05-07T14:45:09Z"
+    },
+    "019df993-6bb9-7ff2-99b2-c34ddc737c76": {
+      "user_message_count": 6,
+      "agent_message_count": 212,
+      "start_timestamp": "2026-05-05T19:18:33.228Z",
+      "end_timestamp": "2026-05-06T12:17:56.746Z",
+      "markdown_size_bytes": 286122,
+      "provider": "codex-cli",
+      "last_updated": "2026-05-07T14:45:09Z"
+    },
+    "019df999-4f02-70f1-9d0f-895fb3098ee6": {
+      "user_message_count": 21,
+      "agent_message_count": 553,
+      "start_timestamp": "2026-05-05T19:25:18.027Z",
+      "end_timestamp": "2026-05-07T05:33:58.877Z",
+      "markdown_size_bytes": 777217,
+      "provider": "codex-cli",
+      "last_updated": "2026-05-07T14:45:09Z"
+    },
+    "019e00c2-88d5-78e1-bc14-ca1f0d1f1084": {
+      "user_message_count": 56,
+      "agent_message_count": 1428,
+      "start_timestamp": "2026-05-07T04:46:55.873Z",
+      "end_timestamp": "2026-05-07T09:42:02.672Z",
+      "markdown_size_bytes": 3210530,
+      "provider": "codex-cli",
+      "last_updated": "2026-05-07T14:45:04Z"
+    },
+    "019e01b8-4577-7b30-8e0c-22916f0dd5ae": {
+      "user_message_count": 6,
+      "agent_message_count": 40,
+      "start_timestamp": "2026-05-07T09:15:42.517Z",
+      "end_timestamp": "2026-05-07T09:40:01.953Z",
+      "markdown_size_bytes": 88139,
+      "provider": "codex-cli",
+      "last_updated": "2026-05-07T14:45:09Z"
+    },
+    "019e01d9-2a8f-7a60-8755-384b1c4cd4e0": {
+      "user_message_count": 38,
+      "agent_message_count": 1044,
+      "start_timestamp": "2026-05-07T09:51:24.435Z",
+      "end_timestamp": "2026-05-07T14:37:43.204Z",
+      "markdown_size_bytes": 2128694,
+      "provider": "codex-cli",
+      "last_updated": "2026-05-07T14:45:09Z"
+    }
+  }
+}
