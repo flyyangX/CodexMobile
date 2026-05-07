@@ -31,3 +31,13 @@ test('shouldUseWebNotification only fires when permission and context allow it',
   assert.equal(shouldUseWebNotification({ enabled: true, permission: 'default', visibilityState: 'hidden' }), false);
   assert.equal(shouldUseWebNotification({ enabled: false, permission: 'granted', visibilityState: 'hidden' }), false);
 });
+
+test('notificationFromPayload warns for explicit user input requests', () => {
+  const notification = notificationFromPayload({
+    type: 'user-input-request',
+    questions: [{ question: '选择方案' }]
+  });
+
+  assert.equal(notification.level, 'warning');
+  assert.equal(notification.title, '需要处理');
+});

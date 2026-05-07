@@ -14,6 +14,7 @@ import {
   GitBranch,
   GitCommitHorizontal,
   Headphones,
+  HelpCircle,
   Image,
   Loader2,
   Menu,
@@ -1281,6 +1282,46 @@ function upsertActivityMessage(current, payload) {
     return next;
   }
   return [...current, nextMessage];
+}
+
+function userInputMessageId(payload) {
+  return `user-input-${[payload.threadId || payload.sessionId, payload.turnId, payload.itemId].filter(Boolean).join('-')}`;
+}
+
+function userInputKey(payload) {
+  return [payload.threadId || payload.sessionId, payload.turnId, payload.itemId].filter(Boolean).join(':');
+}
+
+function upsertUserInputMessage(current, payload) {
+  const id = userInputMessageId(payload);
+  const existingIndex = current.findIndex((message) => message.id === id);
+  const nextMessage = {
+    id,
+    role: 'user_input_request',
+    sessionId: payload.threadId || payload.sessionId || null,
+    threadId: payload.threadId || payload.sessionId || null,
+    turnId: payload.turnId || null,
+    itemId: payload.itemId || null,
+    questions: Array.isArray(payload.questions) ? payload.questions : [],
+    status: payload.status || 'pending',
+    timestamp: payload.timestamp || new Date().toISOString(),
+    error: payload.error || ''
+  };
+  if (existingIndex >= 0) {
+    const next = [...current];
+    next[existingIndex] = { ...current[existingIndex], ...nextMessage };
+    return next;
+  }
+  return [...current, nextMessage];
+}
+
+function markUserInputMessageResolved(current, payload) {
+  const id = userInputMessageId(payload);
+  return current.map((message) =>
+    message.id === id
+      ? { ...message, status: 'answered', error: '' }
+      : message
+  );
 }
 
 function completeStatusMessage(current, payload) {
@@ -3976,7 +4017,102 @@ function renderMarkdownBlocks(content, onPreviewImage) {
   return blocks.length ? blocks : null;
 }
 
-function ChatMessage({ message, now, onPreviewImage, onDeleteMessage }) {
+function UserInputRequestMessage({ message, onSubmit }) {
+  const [answers, setAnswers] = useState({});
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const answered = message.status === 'answered';
+  const questions = Array.isArray(message.questions) ? message.questions : [];
+
+  function questionKey(question, index) {
+    return question?.id || `question-${index}`;
+  }
+
+  function setQuestionAnswer(questionId, value) {
+    setAnswers((current) => ({
+      ...current,
+      [questionId]: { answers: value ? [value] : [] }
+    }));
+  }
+
+  async function submit(nextAnswers) {
+    setBusy(true);
+    setError('');
+    try {
+      await onSubmit?.(message, nextAnswers);
+    } catch (submitError) {
+      setError(submitError.message || '提交失败');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="message-row is-activity">
+      <div className={`message-bubble user-input-card ${answered ? 'is-answered' : ''}`}>
+        <div className="user-input-card-head">
+          {answered ? <Check size={16} /> : <HelpCircle size={16} />}
+          <span>{answered ? '已提交选择' : '等待你的选择'}</span>
+        </div>
+        {questions.map((question, index) => {
+          const id = questionKey(question, index);
+          const selectedAnswer = answers[id]?.answers?.[0] || '';
+          const hasOptions = Array.isArray(question.options) && question.options.length > 0;
+          const disabled = busy || answered;
+          return (
+            <div key={id} className="user-input-question">
+              {question.header ? <strong>{question.header}</strong> : null}
+              {question.question ? <p>{question.question}</p> : null}
+              {hasOptions ? (
+                <div className="user-input-options">
+                  {question.options.map((option, optionIndex) => {
+                    const optionLabel = String(option?.label || '');
+                    const optionKey = optionLabel || `option-${optionIndex}`;
+                    return (
+                      <button
+                        key={optionKey}
+                        type="button"
+                        className={selectedAnswer && selectedAnswer === optionLabel ? 'is-selected' : ''}
+                        disabled={disabled}
+                        onClick={() => setQuestionAnswer(id, optionLabel)}
+                      >
+                        <span>{optionLabel}</span>
+                        {option.description ? <small>{option.description}</small> : null}
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : null}
+              {question.isOther || !hasOptions ? (
+                <input
+                  type={question.isSecret ? 'password' : 'text'}
+                  value={selectedAnswer}
+                  disabled={disabled}
+                  onChange={(event) => setQuestionAnswer(id, event.target.value)}
+                />
+              ) : null}
+            </div>
+          );
+        })}
+        {error || message.error ? <div className="user-input-error">{error || message.error}</div> : null}
+        {!answered ? (
+          <div className="user-input-actions">
+            <button type="button" disabled={busy} onClick={() => submit(answers)}>
+              {busy ? <Loader2 className="spin" size={15} /> : <Check size={15} />}
+              <span>提交</span>
+            </button>
+            <button type="button" disabled={busy} onClick={() => submit({})}>
+              <X size={15} />
+              <span>取消</span>
+            </button>
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function ChatMessage({ message, now, onPreviewImage, onDeleteMessage, onSubmitUserInput }) {
   const [copied, setCopied] = useState(false);
   const copiedTimerRef = useRef(null);
 
@@ -3986,6 +4122,9 @@ function ChatMessage({ message, now, onPreviewImage, onDeleteMessage }) {
     }
   }, []);
 
+  if (message.role === 'user_input_request') {
+    return <UserInputRequestMessage message={message} onSubmit={onSubmitUserInput} />;
+  }
   if (message.role === 'activity') {
     return <ActivityMessage message={message} now={now} />;
   }
@@ -4034,7 +4173,7 @@ function ChatMessage({ message, now, onPreviewImage, onDeleteMessage }) {
   );
 }
 
-function ChatPane({ messages, selectedSession, running, now, onPreviewImage, onDeleteMessage }) {
+function ChatPane({ messages, selectedSession, running, now, onPreviewImage, onDeleteMessage, onSubmitUserInput }) {
   const paneRef = useRef(null);
   const contentRef = useRef(null);
   const bottomPinnedRef = useRef(true);
@@ -4128,6 +4267,7 @@ function ChatPane({ messages, selectedSession, running, now, onPreviewImage, onD
             now={now}
             onPreviewImage={onPreviewImage}
             onDeleteMessage={onDeleteMessage}
+            onSubmitUserInput={onSubmitUserInput}
           />
         ))}
       </div>
@@ -4965,6 +5105,7 @@ export default function App() {
     pendingComposerMode
   );
   const [messages, setMessages] = useState([]);
+  const [pendingUserInputs, setPendingUserInputs] = useState({});
   const [activityClockNow, setActivityClockNow] = useState(() => Date.now());
   const [completedSessionIds, setCompletedSessionIds] = useState({});
   const [previewImage, setPreviewImage] = useState(null);
@@ -6841,6 +6982,28 @@ export default function App() {
         }
         return;
       }
+      if (payload.type === 'user-input-request') {
+        notifyFromPayload(payload);
+        const key = userInputKey(payload);
+        setPendingUserInputs((current) => ({
+          ...current,
+          [key]: { ...payload, key, status: 'pending', error: '' }
+        }));
+        if (payloadMatchesCurrentConversation({ ...payload, sessionId: payload.threadId || payload.sessionId })) {
+          setMessages((current) => upsertUserInputMessage(current, { ...payload, key }));
+        }
+        return;
+      }
+      if (payload.type === 'user-input-resolved') {
+        const key = userInputKey(payload);
+        setPendingUserInputs((current) => {
+          const next = { ...current };
+          delete next[key];
+          return next;
+        });
+        setMessages((current) => markUserInputMessageResolved(current, payload));
+        return;
+      }
       if (payload.type === 'status-update') {
         if (payload.status === 'running' || payload.status === 'queued') {
           markRun(payload);
@@ -7756,6 +7919,20 @@ export default function App() {
     await loadQueueDrafts(session);
   }
 
+  async function submitUserInput(message, answers) {
+    await apiFetch('/api/chat/user-input/respond', {
+      method: 'POST',
+      body: {
+        projectId: selectedProjectRef.current?.id || selectedProject?.id || null,
+        sessionId: message.threadId || message.sessionId,
+        threadId: message.threadId || message.sessionId,
+        turnId: message.turnId,
+        itemId: message.itemId,
+        answers
+      }
+    });
+  }
+
   async function submitCodexMessage({
     message,
     attachmentsForTurn = [],
@@ -8195,6 +8372,7 @@ export default function App() {
         now={activityClockNow}
         onPreviewImage={setPreviewImage}
         onDeleteMessage={handleDeleteMessage}
+        onSubmitUserInput={submitUserInput}
       />
       <Composer
         input={input}

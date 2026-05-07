@@ -79,6 +79,13 @@ export function notificationFromPayload(payload = {}) {
       body: payload.detail || '当前任务已经停下。'
     };
   }
+  if (payload.type === 'user-input-request') {
+    return {
+      level: 'warning',
+      title: '需要处理',
+      body: payload.questions?.[0]?.question || 'Codex 正在等待你的选择。'
+    };
+  }
   if ((payload.type === 'status-update' || payload.type === 'activity-update') && payloadNeedsUserInput(payload)) {
     return {
       level: 'warning',
