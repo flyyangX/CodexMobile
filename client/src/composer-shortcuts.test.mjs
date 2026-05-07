@@ -4,6 +4,8 @@ import {
   SLASH_COMMANDS,
   detectComposerToken,
   filteredSlashCommands,
+  migrateComposerMode,
+  selectedComposerModeForSession,
   replaceComposerToken
 } from './composer-shortcuts.js';
 
@@ -49,4 +51,16 @@ test('plan slash command is a mode switch', () => {
   assert.equal(command.mode, 'plan');
   assert.equal(filteredSlashCommands('plan')[0].id, 'plan');
   assert.equal(filteredSlashCommands('计划')[0].id, 'plan');
+});
+
+test('selectedComposerModeForSession preserves pending mode without a session', () => {
+  assert.equal(selectedComposerModeForSession({}, '', 'plan'), 'plan');
+  assert.equal(selectedComposerModeForSession({}, null, 'invalid'), 'chat');
+});
+
+test('migrateComposerMode carries draft mode to the real session id', () => {
+  assert.deepEqual(
+    migrateComposerMode({ 'draft-1': 'plan', other: 'chat' }, ['draft-1'], 'real-1'),
+    { other: 'chat', 'real-1': 'plan' }
+  );
 });

@@ -74,6 +74,35 @@ export function replaceComposerToken(text, token, replacement) {
   return next.replace(/[ \t]{2,}/g, ' ');
 }
 
+export function normalizeComposerMode(mode) {
+  return mode === 'plan' ? 'plan' : 'chat';
+}
+
+export function selectedComposerModeForSession(modesBySession, sessionId, pendingMode = 'chat') {
+  if (!sessionId) {
+    return normalizeComposerMode(pendingMode);
+  }
+  return normalizeComposerMode(modesBySession?.[sessionId]);
+}
+
+export function migrateComposerMode(modesBySession, sourceSessionIds, targetSessionId) {
+  const current = modesBySession || {};
+  if (!targetSessionId) {
+    return current;
+  }
+  const sourceIds = (Array.isArray(sourceSessionIds) ? sourceSessionIds : [sourceSessionIds])
+    .filter((id) => id && id !== targetSessionId);
+  const sourceId = sourceIds.find((id) => current[id]);
+  if (!sourceId) {
+    return current;
+  }
+  const next = { ...current, [targetSessionId]: normalizeComposerMode(current[sourceId]) };
+  sourceIds.forEach((id) => {
+    delete next[id];
+  });
+  return next;
+}
+
 export function filteredSlashCommands(query, commands = SLASH_COMMANDS) {
   const normalized = String(query || '').trim().toLowerCase();
   if (!normalized) {

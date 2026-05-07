@@ -57,6 +57,9 @@ import {
 import {
   detectComposerToken,
   filteredSlashCommands,
+  migrateComposerMode,
+  normalizeComposerMode,
+  selectedComposerModeForSession,
   replaceComposerToken
 } from './composer-shortcuts.js';
 import { connectionRecoveryState } from './connection-recovery.js';
@@ -4954,7 +4957,12 @@ export default function App() {
   const [loadingProjectId, setLoadingProjectId] = useState(null);
   const [selectedSession, setSelectedSession] = useState(null);
   const [composerModesBySession, setComposerModesBySession] = useState({});
-  const selectedComposerMode = composerModesBySession[selectedSession?.id || ''] || 'chat';
+  const [pendingComposerMode, setPendingComposerMode] = useState('chat');
+  const selectedComposerMode = selectedComposerModeForSession(
+    composerModesBySession,
+    selectedSession?.id || '',
+    pendingComposerMode
+  );
   const [messages, setMessages] = useState([]);
   const [activityClockNow, setActivityClockNow] = useState(() => Date.now());
   const [completedSessionIds, setCompletedSessionIds] = useState({});
@@ -7251,13 +7259,15 @@ export default function App() {
     setMessages([]);
     setAttachments([]);
     setComposerModesBySession((current) => ({ ...current, [draft.id]: 'chat' }));
+    setPendingComposerMode('chat');
     setDrawerOpen(false);
   }
 
   function setSelectedComposerMode(mode) {
-    const normalized = mode === 'plan' ? 'plan' : 'chat';
+    const normalized = normalizeComposerMode(mode);
     const sessionKey = selectedSessionRef.current?.id || selectedSession?.id || '';
     if (!sessionKey) {
+      setPendingComposerMode(normalized);
       return;
     }
     setComposerModesBySession((current) => ({
@@ -7396,6 +7406,9 @@ export default function App() {
           ? { ...message, sessionId: realSessionId }
           : message
       )
+    );
+    setComposerModesBySession((current) =>
+      migrateComposerMode(current, [previousSessionId, optimisticSessionId, currentSession?.id], realSessionId)
     );
     if (turn.status === 'running' || turn.status === 'queued') {
       markRun({ turnId: turn.turnId, sessionId: realSessionId, previousSessionId: previousSessionId || optimisticSessionId });
@@ -7767,6 +7780,10 @@ export default function App() {
     if (!sessionForTurn) {
       sessionForTurn = createDraftSession(project);
       setSelectedSession(sessionForTurn);
+      setComposerModesBySession((current) => ({
+        ...current,
+        [sessionForTurn.id]: normalizeComposerMode(pendingComposerMode)
+      }));
       setExpandedProjectIds((current) => ({ ...current, [project.id]: true }));
       setSessionsByProject((current) => upsertSessionInProject(current, project.id, sessionForTurn));
     }
