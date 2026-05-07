@@ -14,6 +14,7 @@ import {
   registerProjectlessThread as registerProjectlessThreadInCodexState
 } from './codex-config.js';
 import { registerMobileSession as registerMobileSessionInIndex } from './mobile-session-index.js';
+import { normalizeCollaborationMode } from '../shared/collaboration-mode.js';
 
 const MAX_RECENT_TURNS = 80;
 
@@ -553,6 +554,7 @@ export function createChatService({
         selectedSkills: job.selectedSkills,
         model: job.model,
         reasoningEffort: job.reasoningEffort,
+        collaborationMode: job.collaborationMode,
         permissionMode: job.permissionMode,
         turnId: job.turnId
       },
@@ -668,6 +670,7 @@ export function createChatService({
     selectedSkills,
     model,
     reasoningEffort,
+    collaborationMode,
     permissionMode
   }) {
     if (!selectedSessionId) {
@@ -691,6 +694,7 @@ export function createChatService({
         : { type: 'workspaceWrite', networkAccess: false },
       model: model || null,
       effort: reasoningEffort || null,
+      collaborationMode,
       attachments: []
     };
 
@@ -801,6 +805,14 @@ export function createChatService({
     const turnId = String(body.clientTurnId || '').trim() || crypto.randomUUID();
     const sendMode = String(body.sendMode || body.mode || 'start').trim();
     const config = getCacheSnapshot().config || {};
+    const selectedModel = session?.model || body.model || config.model || 'gpt-5.5';
+    const selectedReasoningEffort = body.reasoningEffort || defaultReasoningEffort;
+    const collaborationMode = sendMode === 'steer'
+      ? null
+      : normalizeCollaborationMode(body.collaborationMode, {
+        model: selectedModel,
+        reasoningEffort: selectedReasoningEffort
+      });
     const selectedSkills = normalizeSelectedSkills(body.selectedSkills, config.skills);
     const displayMessage = message || '请查看附件。';
     const visibleMessage = withImageAttachmentPreviews(displayMessage, attachments);
@@ -834,8 +846,9 @@ export function createChatService({
         attachments,
         selectedSkills,
         fileMentions,
-        model: session?.model || body.model || config.model || 'gpt-5.5',
-        reasoningEffort: body.reasoningEffort || defaultReasoningEffort,
+        model: selectedModel,
+        reasoningEffort: selectedReasoningEffort,
+        collaborationMode,
         permissionMode: body.permissionMode || 'bypassPermissions'
       }, { forceQueued: true, autoStart: false });
       return {
@@ -865,8 +878,9 @@ export function createChatService({
             visibleMessage,
             attachments,
             selectedSkills,
-            model: session?.model || body.model || config.model || 'gpt-5.5',
-            reasoningEffort: body.reasoningEffort || defaultReasoningEffort,
+            model: selectedModel,
+            reasoningEffort: selectedReasoningEffort,
+            collaborationMode,
             permissionMode: body.permissionMode || 'bypassPermissions'
           });
         } catch (error) {
@@ -1069,8 +1083,9 @@ export function createChatService({
       attachments,
       selectedSkills,
       fileMentions,
-      model: session?.model || body.model || config.model || 'gpt-5.5',
-      reasoningEffort: body.reasoningEffort || defaultReasoningEffort,
+      model: selectedModel,
+      reasoningEffort: selectedReasoningEffort,
+      collaborationMode,
       permissionMode: body.permissionMode || 'bypassPermissions'
     });
 

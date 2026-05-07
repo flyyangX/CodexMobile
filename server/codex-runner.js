@@ -706,7 +706,7 @@ function abortError() {
   return error;
 }
 
-export async function runCodexTurn({ sessionId, draftSessionId, projectPath, message, attachments = [], selectedSkills = [], model, reasoningEffort, permissionMode, turnId: providedTurnId }, emit) {
+export async function runCodexTurn({ sessionId, draftSessionId, projectPath, message, attachments = [], selectedSkills = [], model, reasoningEffort, collaborationMode = null, permissionMode, turnId: providedTurnId }, emit) {
   const workingDirectory = await ensureAsciiWorkingDirectory(projectPath);
   const { sandboxMode, approvalPolicy } = mapPermissionMode(permissionMode);
   const feishuSkillKeys = detectFeishuSkillKeys(message);
@@ -843,7 +843,7 @@ export async function runCodexTurn({ sessionId, draftSessionId, projectPath, mes
     });
     emitStatus(emit, { sessionId: currentSessionId, turnId, kind: 'reasoning', status: 'running', label: '正在思考' });
 
-    const turnResponse = await client.request('turn/start', {
+    const turnStartParams = {
       threadId: currentSessionId,
       input: buildCodexTurnInput({
         message,
@@ -856,7 +856,11 @@ export async function runCodexTurn({ sessionId, draftSessionId, projectPath, mes
       sandboxPolicy: sandboxPolicyFromMode(sandboxMode, { networkAccess: larkCliContext.enabled }),
       model: model || null,
       effort: modelReasoningEffort || null
-    }, { timeoutMs: 30_000 });
+    };
+    if (collaborationMode !== null) {
+      turnStartParams.collaborationMode = collaborationMode;
+    }
+    const turnResponse = await client.request('turn/start', turnStartParams, { timeoutMs: 30_000 });
     if (turnResponse?.turn?.id) {
       run.appTurnId = turnResponse.turn.id;
     }
