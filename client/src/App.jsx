@@ -50,6 +50,11 @@ import { isPlaceholderTimelineItem } from './activity-timeline.js';
 import { isNearChatBottom, shouldFollowChatOutput } from './chat-scroll.js';
 import { composerSendState, desktopBridgeCanCreateThread } from './send-state.js';
 import {
+  dragEventHasFiles,
+  filesFromClipboardEvent,
+  filesFromDropEvent
+} from './upload-inputs.js';
+import {
   detectComposerToken,
   filteredSlashCommands,
   replaceComposerToken
@@ -4376,6 +4381,8 @@ function Composer({
   const [skillFilter, setSkillFilter] = useState('');
   const [cursorPosition, setCursorPosition] = useState(0);
   const [fileSearch, setFileSearch] = useState({ query: '', loading: false, results: [] });
+  const [dragDepth, setDragDepth] = useState(0);
+  const dropActive = dragDepth > 0;
   const selectedFileMentions = Array.isArray(fileMentions) ? fileMentions : [];
   const hasInput = input.trim().length > 0 || attachments.length > 0 || selectedFileMentions.length > 0;
   const modelList = models?.length ? models : [{ value: selectedModel || 'gpt-5.5', label: selectedModel || 'gpt-5.5' }];
@@ -4539,6 +4546,56 @@ function Composer({
     setOpenMenu(null);
   }
 
+  function uploadFiles(files) {
+    if (!files.length) {
+      return;
+    }
+    onUploadFiles(files);
+    setOpenMenu(null);
+  }
+
+  function handlePaste(event) {
+    const files = filesFromClipboardEvent(event);
+    if (!files.length) {
+      return;
+    }
+    event.preventDefault();
+    uploadFiles(files);
+  }
+
+  function handleDragEnter(event) {
+    if (!dragEventHasFiles(event)) {
+      return;
+    }
+    event.preventDefault();
+    setDragDepth((value) => value + 1);
+  }
+
+  function handleDragOver(event) {
+    if (!dragEventHasFiles(event)) {
+      return;
+    }
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'copy';
+  }
+
+  function handleDragLeave(event) {
+    if (!dragEventHasFiles(event)) {
+      return;
+    }
+    event.preventDefault();
+    setDragDepth((value) => Math.max(0, value - 1));
+  }
+
+  function handleDrop(event) {
+    if (!dragEventHasFiles(event)) {
+      return;
+    }
+    event.preventDefault();
+    setDragDepth(0);
+    uploadFiles(filesFromDropEvent(event));
+  }
+
   const tokenPanelOpen = !openMenu && composerToken && (
     (composerToken.type === 'slash' && slashMatches.length > 0) ||
     (composerToken.type === 'skill') ||
@@ -4546,7 +4603,14 @@ function Composer({
   );
 
   return (
-    <form className="composer-wrap" onSubmit={submit}>
+    <form
+      className={`composer-wrap ${dropActive ? 'is-drop-active' : ''}`}
+      onSubmit={submit}
+      onDragEnter={handleDragEnter}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
       <input
         ref={imageInputRef}
         className="file-input"
@@ -4814,6 +4878,12 @@ function Composer({
           </button>
         </div>
       ) : null}
+      {dropActive ? (
+        <div className="composer-drop-overlay" aria-hidden="true">
+          <UploadCloud size={22} />
+          <span>松开上传到当前消息</span>
+        </div>
+      ) : null}
       <div className="composer">
         {attachments.length || selectedFileMentions.length ? (
           <div className="attachment-tray">
@@ -4849,6 +4919,7 @@ function Composer({
           onClick={updateCursorFromTextarea}
           onKeyUp={updateCursorFromTextarea}
           onFocus={() => setOpenMenu(null)}
+          onPaste={handlePaste}
           placeholder="给 Codex 发送消息"
         />
         <div className="composer-controls">
