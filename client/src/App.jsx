@@ -4968,6 +4968,7 @@ export default function App() {
   const [contextStatus, setContextStatus] = useState(() => normalizeContextStatus(DEFAULT_STATUS.context));
   const [authenticated, setAuthenticated] = useState(Boolean(getToken()));
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [desktopDrawerCollapsed, setDesktopDrawerCollapsed] = useState(false);
   const [projects, setProjects] = useState([]);
   const [selectedProject, setSelectedProject] = useState(null);
   const [expandedProjectIds, setExpandedProjectIds] = useState({});
@@ -7995,7 +7996,22 @@ export default function App() {
     }
   }
 
-  const shellClass = useMemo(() => (drawerOpen ? 'app-shell drawer-active' : 'app-shell'), [drawerOpen]);
+  function handleShellMenu() {
+    if (window.matchMedia?.('(min-width: 1024px)').matches) {
+      setDesktopDrawerCollapsed((value) => !value);
+      return;
+    }
+    setDrawerOpen(true);
+  }
+
+  const shellClass = useMemo(
+    () => [
+      'app-shell',
+      drawerOpen ? 'drawer-active' : '',
+      desktopDrawerCollapsed ? 'desktop-drawer-collapsed' : ''
+    ].filter(Boolean).join(' '),
+    [desktopDrawerCollapsed, drawerOpen]
+  );
   const visibleContextStatus = useMemo(
     () => {
       if (!selectedSession || isDraftSession(selectedSession)) {
@@ -8028,7 +8044,7 @@ export default function App() {
         selectedSession={selectedSession}
         connectionState={connectionState}
         desktopBridge={status.desktopBridge}
-        onMenu={() => setDrawerOpen(true)}
+        onMenu={handleShellMenu}
         onOpenDocs={() => setDocsOpen(true)}
         onGitAction={handleGitAction}
         notificationSupported={notificationSupported}
