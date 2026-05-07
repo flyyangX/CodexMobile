@@ -49,6 +49,7 @@ import { mergeActivityStep } from './activity-merge.js';
 import { isPlaceholderTimelineItem } from './activity-timeline.js';
 import { isNearChatBottom, shouldFollowChatOutput } from './chat-scroll.js';
 import { composerSendState, desktopBridgeCanCreateThread } from './send-state.js';
+import { buildClientCollaborationMode } from './plan-mode-client.js';
 import {
   dragEventHasFiles,
   filesFromClipboardEvent,
@@ -7796,6 +7797,14 @@ export default function App() {
       ? titleFromFirstMessage(displayMessage)
       : null;
     const optimisticContent = contentWithAttachmentPreviews(displayMessage, selectedAttachments);
+    const modelForTurn = selectedModel || status.model;
+    const reasoningForTurn = selectedReasoningEffort || status.reasoningEffort || DEFAULT_REASONING_EFFORT;
+    const collaborationMode = buildClientCollaborationMode({
+      composerMode: selectedComposerMode,
+      sendMode,
+      model: modelForTurn,
+      reasoningEffort: reasoningForTurn
+    });
 
     if (clearComposer) {
       setInput('');
@@ -7853,8 +7862,9 @@ export default function App() {
           clientTurnId: turnId,
           message: displayMessage,
           permissionMode,
-          model: selectedModel || status.model,
-          reasoningEffort: selectedReasoningEffort || status.reasoningEffort || DEFAULT_REASONING_EFFORT,
+          model: modelForTurn,
+          reasoningEffort: reasoningForTurn,
+          collaborationMode,
           selectedSkills: selectedSkillsForTurn(),
           attachments: selectedAttachments,
           fileMentions: selectedFileMentions,
