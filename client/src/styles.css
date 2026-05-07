@@ -4949,6 +4949,7 @@ button {
   }
 
   .composer-wrap {
+    --desktop-composer-gutter: max(24px, calc((100% - 1040px) / 2));
     grid-area: composer;
     max-width: none;
     padding: 8px 24px 18px;
@@ -4963,36 +4964,36 @@ button {
   }
 
   .composer-drop-overlay {
-    inset: 8px max(24px, calc((100vw - 1040px) / 2)) 18px;
+    inset: 8px var(--desktop-composer-gutter) 18px;
     width: min(1040px, calc(100% - 48px));
     margin-right: auto;
     margin-left: auto;
   }
 
   .shortcut-menu {
-    right: max(24px, calc((100vw - 1040px) / 2));
-    left: max(24px, calc((100vw - 1040px) / 2));
+    right: var(--desktop-composer-gutter);
+    left: var(--desktop-composer-gutter);
   }
 
   .attach-menu {
-    left: max(24px, calc((100vw - 1040px) / 2));
+    left: var(--desktop-composer-gutter);
   }
 
   .permission-menu {
-    left: max(66px, calc((100vw - 1040px) / 2 + 42px));
+    left: calc(var(--desktop-composer-gutter) + 42px);
   }
 
   .skill-menu {
-    left: max(118px, calc((100vw - 1040px) / 2 + 94px));
+    left: calc(var(--desktop-composer-gutter) + 94px);
   }
 
   .model-menu,
   .send-mode-menu {
-    right: max(24px, calc((100vw - 1040px) / 2));
+    right: var(--desktop-composer-gutter);
   }
 
   .context-popover {
-    right: max(108px, calc((100vw - 1040px) / 2 + 84px));
+    right: calc(var(--desktop-composer-gutter) + 84px);
   }
 }
 
