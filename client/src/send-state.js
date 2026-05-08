@@ -33,6 +33,7 @@ export function composerSendState({
   uploading = false,
   desktopBridge = null,
   steerable = true,
+  followUpMode = 'queue',
   sessionIsDraft = false
 } = {}) {
   const bridge = normalizeDesktopBridge(desktopBridge);
@@ -81,10 +82,11 @@ export function composerSendState({
     };
   }
   if (running && hasInput) {
+    const normalizedFollowUpMode = followUpMode === 'steer' && steerable ? 'steer' : 'queue';
     return {
       disabled: false,
-      label: steerable ? '发送到当前任务' : '选择发送方式',
-      mode: steerable ? 'steer' : 'queue',
+      label: normalizedFollowUpMode === 'steer' ? '引导' : '排队',
+      mode: normalizedFollowUpMode,
       showMenu: true,
       canSteer: Boolean(steerable),
       canQueue: true,

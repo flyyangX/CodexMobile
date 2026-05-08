@@ -14,6 +14,9 @@ import {
   registerProjectlessThread as registerProjectlessThreadInCodexState
 } from './codex-config.js';
 import { registerMobileSession as registerMobileSessionInIndex } from './mobile-session-index.js';
+import { normalizeCollaborationMode } from '../shared/collaboration-mode.js';
+import { normalizeServiceTier } from '../shared/service-tier.js';
+import { PendingUserInputRequests } from './user-input-requests.js';
 
 const MAX_RECENT_TURNS = 80;
 
@@ -112,6 +115,7 @@ export function createChatService({
   const sessionQueueKeys = new Map();
   const recentImagePromptsByProject = new Map();
   const activeImageRuns = new Map();
+  const pendingUserInputs = new PendingUserInputRequests();
 
   function rememberTurn(turnId, patch) {
     if (!turnId) {
@@ -398,6 +402,7 @@ export function createChatService({
       attachments: Array.isArray(job.attachments) ? job.attachments : [],
       selectedSkills: Array.isArray(job.selectedSkills) ? job.selectedSkills : [],
       fileMentions: Array.isArray(job.fileMentions) ? job.fileMentions : [],
+      serviceTier: job.serviceTier || null,
       createdAt: job.createdAt || new Date().toISOString(),
       sessionId: job.selectedSessionId || null,
       draftSessionId: job.draftSessionId || null
@@ -456,6 +461,7 @@ export function createChatService({
       attachments: draft.attachments,
       selectedSkills: draft.selectedSkills,
       fileMentions: draft.fileMentions,
+      serviceTier: draft.serviceTier,
       sendMode: 'steer'
     });
   }
@@ -553,7 +559,11 @@ export function createChatService({
         selectedSkills: job.selectedSkills,
         model: job.model,
         reasoningEffort: job.reasoningEffort,
+        serviceTier: job.serviceTier,
+        collaborationMode: job.collaborationMode,
         permissionMode: job.permissionMode,
+        onUserInputRequest: handleUserInputRequest,
+        onUserInputCleanup: clearUserInputRequestsForTurn,
         turnId: job.turnId
       },
       (payload) => {
@@ -668,6 +678,8 @@ export function createChatService({
     selectedSkills,
     model,
     reasoningEffort,
+    serviceTier,
+    collaborationMode,
     permissionMode
   }) {
     if (!selectedSessionId) {
@@ -693,6 +705,12 @@ export function createChatService({
       effort: reasoningEffort || null,
       attachments: []
     };
+    if (serviceTier) {
+      baseTurnStartParams.serviceTier = serviceTier;
+    }
+    if (collaborationMode !== null) {
+      baseTurnStartParams.collaborationMode = collaborationMode;
+    }
 
     rememberTurn(turnId, {
       projectId: project.id,
@@ -801,6 +819,15 @@ export function createChatService({
     const turnId = String(body.clientTurnId || '').trim() || crypto.randomUUID();
     const sendMode = String(body.sendMode || body.mode || 'start').trim();
     const config = getCacheSnapshot().config || {};
+    const selectedModel = session?.model || body.model || config.model || 'gpt-5.5';
+    const selectedReasoningEffort = body.reasoningEffort || defaultReasoningEffort;
+    const selectedServiceTier = normalizeServiceTier(body.serviceTier);
+    const collaborationMode = sendMode === 'steer'
+      ? null
+      : normalizeCollaborationMode(body.collaborationMode, {
+        model: selectedModel,
+        reasoningEffort: selectedReasoningEffort
+      });
     const selectedSkills = normalizeSelectedSkills(body.selectedSkills, config.skills);
     const displayMessage = message || '请查看附件。';
     const visibleMessage = withImageAttachmentPreviews(displayMessage, attachments);
@@ -834,8 +861,10 @@ export function createChatService({
         attachments,
         selectedSkills,
         fileMentions,
-        model: session?.model || body.model || config.model || 'gpt-5.5',
-        reasoningEffort: body.reasoningEffort || defaultReasoningEffort,
+        model: selectedModel,
+        reasoningEffort: selectedReasoningEffort,
+        serviceTier: selectedServiceTier,
+        collaborationMode,
         permissionMode: body.permissionMode || 'bypassPermissions'
       }, { forceQueued: true, autoStart: false });
       return {
@@ -865,8 +894,10 @@ export function createChatService({
             visibleMessage,
             attachments,
             selectedSkills,
-            model: session?.model || body.model || config.model || 'gpt-5.5',
-            reasoningEffort: body.reasoningEffort || defaultReasoningEffort,
+            model: selectedModel,
+            reasoningEffort: selectedReasoningEffort,
+            serviceTier: selectedServiceTier,
+            collaborationMode,
             permissionMode: body.permissionMode || 'bypassPermissions'
           });
         } catch (error) {
@@ -1069,8 +1100,10 @@ export function createChatService({
       attachments,
       selectedSkills,
       fileMentions,
-      model: session?.model || body.model || config.model || 'gpt-5.5',
-      reasoningEffort: body.reasoningEffort || defaultReasoningEffort,
+      model: selectedModel,
+      reasoningEffort: selectedReasoningEffort,
+      serviceTier: selectedServiceTier,
+      collaborationMode,
       permissionMode: body.permissionMode || 'bypassPermissions'
     });
 
@@ -1090,6 +1123,64 @@ export function createChatService({
     return abortCodexTurn(body.turnId || body.sessionId);
   }
 
+  function handleUserInputRequest(message, resolve) {
+    const { key, request } = pendingUserInputs.add(message, resolve);
+    const timestamp = new Date().toISOString();
+    broadcast({
+      type: 'user-input-request',
+      ...request,
+      key,
+      timestamp
+    });
+    broadcast({
+      type: 'status-update',
+      sessionId: request.threadId,
+      turnId: request.turnId,
+      kind: 'turn',
+      status: 'running',
+      label: '等待你的选择',
+      detail: request.questions[0]?.question || '',
+      timestamp
+    });
+    return { key, request };
+  }
+
+  function clearUserInputRequestsForTurn({ threadId, turnId } = {}) {
+    const cleared = pendingUserInputs.clearForTurn({ threadId, turnId });
+    const timestamp = new Date().toISOString();
+    for (const request of cleared) {
+      broadcast({
+        type: 'user-input-resolved',
+        threadId: request.threadId,
+        sessionId: request.threadId,
+        turnId: request.turnId,
+        itemId: request.itemId,
+        status: 'cancelled',
+        reason: 'turn-cleanup',
+        timestamp
+      });
+    }
+    return cleared;
+  }
+
+  function respondToUserInput(body = {}) {
+    const result = pendingUserInputs.answer(body);
+    if (!result.ok) {
+      return result;
+    }
+    const timestamp = new Date().toISOString();
+    const request = result.request;
+    broadcast({
+      type: 'user-input-resolved',
+      threadId: request.threadId,
+      sessionId: request.threadId,
+      turnId: request.turnId,
+      itemId: request.itemId,
+      timestamp
+    });
+    return result;
+  }
+
   return {
     abortChat,
     getActiveImageRuns,
@@ -1099,8 +1190,10 @@ export function createChatService({
     loadRecentImagePrompts,
     listQueue,
     removeQueuedDraft,
+    respondToUserInput,
     restoreQueuedDraft,
     sendChat,
+    handleUserInputRequest,
     sessionHasActiveWork,
     steerQueuedDraft
   };

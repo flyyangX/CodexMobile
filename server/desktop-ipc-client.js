@@ -247,7 +247,7 @@ export async function probeDesktopIpc({ timeoutMs = 3000 } = {}) {
 }
 
 async function requestDesktopFollower(method, params, options = {}) {
-  const client = new DesktopIpcClient();
+  const client = new DesktopIpcClient({ socketPath: options.socketPath });
   try {
     await client.connect({ timeoutMs: options.timeoutMs || DEFAULT_TIMEOUT_MS });
     const response = await client.request(method, params, options);
@@ -281,6 +281,23 @@ export async function steerDesktopFollowerTurn(conversationId, { input, attachme
 export async function interruptDesktopFollowerTurn(conversationId, options = {}) {
   return requestDesktopFollower('thread-follower-interrupt-turn', {
     conversationId
+  }, options);
+}
+
+export async function setDesktopFollowerCollaborationMode(conversationId, collaborationMode, options = {}) {
+  return requestDesktopFollower('thread-follower-set-collaboration-mode', {
+    conversationId,
+    collaborationMode
+  }, options);
+}
+
+export async function submitDesktopFollowerUserInput(conversationId, { threadId, turnId, itemId, response }, options = {}) {
+  return requestDesktopFollower('thread-follower-submit-user-input', {
+    conversationId,
+    threadId,
+    turnId,
+    itemId,
+    response
   }, options);
 }
 

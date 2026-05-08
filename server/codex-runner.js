@@ -1,10 +1,11 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { createCodexAppServerClient } from './codex-app-server.js';
+import { createCodexAppServerClient, defaultServerRequestResult } from './codex-app-server.js';
 import { buildCodexTurnInput, imageMarkdownFromCodexImageGeneration } from './codex-native-images.js';
 import { buildCodexLarkCliContext } from './lark-cli.js';
 import { detectFeishuSkillKeys } from './feishu-skills.js';
+import { normalizeServiceTier } from '../shared/service-tier.js';
 
 const activeRuns = new Map();
 const NON_ASCII_PATH_PATTERN = /[^\u0000-\u007F]/;
@@ -521,6 +522,16 @@ function tokenUsagePayload(tokenUsage = {}) {
   };
 }
 
+function normalizePlanItems(plan = []) {
+  if (!Array.isArray(plan)) {
+    return [];
+  }
+  return plan.map((item) => ({
+    step: String(item?.step || item?.text || '').trim(),
+    status: String(item?.status || 'pending').trim() || 'pending'
+  })).filter((item) => item.step);
+}
+
 function errorTextFromNotification(params = {}) {
   return params.error?.message || params.message || params.error || 'Codex turn failed';
 }
@@ -627,6 +638,47 @@ function emitAppServerNotification(message, sessionId, turnId, emit, state) {
     return;
   }
 
+  if (method === 'turn/plan/updated') {
+    const timestamp = new Date().toISOString();
+    const plan = normalizePlanItems(params.plan);
+    const explanation = String(params.explanation || '');
+    emit({
+      type: 'plan-update',
+      sessionId,
+      turnId,
+      explanation,
+      plan,
+      timestamp
+    });
+    emit({
+      type: 'activity-update',
+      sessionId,
+      turnId,
+      messageId: params.itemId || `${turnId}-plan`,
+      kind: 'plan',
+      label: statusLabel('plan', 'running'),
+      status: 'running',
+      detail: explanation,
+      timestamp
+    });
+    return;
+  }
+
+  if (method === 'item/plan/delta') {
+    emit({
+      type: 'activity-update',
+      sessionId,
+      turnId,
+      messageId: params.itemId || `${turnId}-plan-delta`,
+      kind: 'plan',
+      label: '正在规划',
+      status: 'running',
+      detail: String(params.delta || ''),
+      timestamp: new Date().toISOString()
+    });
+    return;
+  }
+
   if (method === 'item/agentMessage/delta') {
     const messageId = params.itemId || `${turnId}-agent-message`;
     const previous = state.agentMessages.get(messageId) || '';
@@ -706,11 +758,12 @@ function abortError() {
   return error;
 }
 
-export async function runCodexTurn({ sessionId, draftSessionId, projectPath, message, attachments = [], selectedSkills = [], model, reasoningEffort, permissionMode, turnId: providedTurnId }, emit) {
+export async function runCodexTurn({ sessionId, draftSessionId, projectPath, message, attachments = [], selectedSkills = [], model, reasoningEffort, serviceTier, collaborationMode = null, permissionMode, onUserInputRequest = null, onUserInputCleanup = null, turnId: providedTurnId }, emit) {
   const workingDirectory = await ensureAsciiWorkingDirectory(projectPath);
   const { sandboxMode, approvalPolicy } = mapPermissionMode(permissionMode);
   const feishuSkillKeys = detectFeishuSkillKeys(message);
   const normalizedReasoningEffort = normalizeReasoningEffort(reasoningEffort);
+  const normalizedServiceTier = normalizeServiceTier(serviceTier);
   const modelReasoningEffort =
     feishuSkillKeys.length && normalizedReasoningEffort === 'xhigh' ? 'low' : normalizedReasoningEffort;
   const larkCliContext = await buildCodexLarkCliContext(message).catch((error) => {
@@ -755,6 +808,28 @@ export async function runCodexTurn({ sessionId, draftSessionId, projectPath, mes
   let turnTimeoutTimer = null;
   let turnInactivityTimeoutTimer = null;
   let resetTurnInactivityTimeout = () => {};
+  const pendingUserInputServerRequests = new Map();
+
+  function userInputServerRequestKey(request) {
+    return [request?.threadId, request?.turnId, request?.itemId].filter(Boolean).join(':');
+  }
+
+  async function cancelPendingUserInputServerRequests() {
+    if (!pendingUserInputServerRequests.size) {
+      return;
+    }
+    const fallback = defaultServerRequestResult({ method: 'item/tool/requestUserInput' });
+    for (const [key, pending] of pendingUserInputServerRequests.entries()) {
+      pendingUserInputServerRequests.delete(key);
+      try {
+        onUserInputCleanup?.(pending.request);
+      } catch (error) {
+        console.warn('[codex] Failed to clear pending user input request:', error.message);
+      }
+      pending.resolve(fallback);
+    }
+    await Promise.resolve();
+  }
 
   try {
     if (larkCliContext.enabled && larkCliContext.env) {
@@ -767,6 +842,29 @@ export async function runCodexTurn({ sessionId, draftSessionId, projectPath, mes
       cwd: workingDirectory,
       clientInfo: { name: 'CodexMobile', title: null, version: '0.1.0' },
       allowHeadlessLocal: true,
+      onServerRequest: (appMessage) => {
+        resetTurnInactivityTimeout();
+        if (appMessage.method === 'item/tool/requestUserInput' && onUserInputRequest) {
+          return new Promise((resolve) => {
+            let key = null;
+            const resolveOnce = (result) => {
+              if (key) {
+                pendingUserInputServerRequests.delete(key);
+              }
+              resolve(result);
+            };
+            const pending = onUserInputRequest(appMessage, resolveOnce);
+            key = userInputServerRequestKey(pending?.request);
+            if (key) {
+              pendingUserInputServerRequests.set(key, {
+                request: pending.request,
+                resolve: resolveOnce
+              });
+            }
+          });
+        }
+        return defaultServerRequestResult(appMessage);
+      },
       onNotification: (appMessage) => {
         resetTurnInactivityTimeout();
         const params = appMessage.params || {};
@@ -823,6 +921,9 @@ export async function runCodexTurn({ sessionId, draftSessionId, projectPath, mes
       config: modelReasoningEffort ? { model_reasoning_effort: modelReasoningEffort } : null,
       serviceName: 'CodexMobile'
     };
+    if (normalizedServiceTier) {
+      threadParams.serviceTier = normalizedServiceTier;
+    }
     const threadResponse = sessionId
       ? await client.request('thread/resume', { threadId: sessionId, ...threadParams }, { timeoutMs: 30_000 })
       : await client.request('thread/start', threadParams, { timeoutMs: 30_000 });
@@ -843,7 +944,7 @@ export async function runCodexTurn({ sessionId, draftSessionId, projectPath, mes
     });
     emitStatus(emit, { sessionId: currentSessionId, turnId, kind: 'reasoning', status: 'running', label: '正在思考' });
 
-    const turnResponse = await client.request('turn/start', {
+    const turnStartParams = {
       threadId: currentSessionId,
       input: buildCodexTurnInput({
         message,
@@ -856,7 +957,14 @@ export async function runCodexTurn({ sessionId, draftSessionId, projectPath, mes
       sandboxPolicy: sandboxPolicyFromMode(sandboxMode, { networkAccess: larkCliContext.enabled }),
       model: model || null,
       effort: modelReasoningEffort || null
-    }, { timeoutMs: 30_000 });
+    };
+    if (normalizedServiceTier) {
+      turnStartParams.serviceTier = normalizedServiceTier;
+    }
+    if (collaborationMode !== null) {
+      turnStartParams.collaborationMode = collaborationMode;
+    }
+    const turnResponse = await client.request('turn/start', turnStartParams, { timeoutMs: 30_000 });
     if (turnResponse?.turn?.id) {
       run.appTurnId = turnResponse.turn.id;
     }
@@ -961,6 +1069,7 @@ export async function runCodexTurn({ sessionId, draftSessionId, projectPath, mes
     if (turnInactivityTimeoutTimer) {
       clearTimeout(turnInactivityTimeoutTimer);
     }
+    await cancelPendingUserInputServerRequests();
     if (client) {
       client.close();
     }

@@ -32,6 +32,142 @@ async function flushQueuedWork() {
   await new Promise((resolve) => setImmediate(resolve));
 }
 
+test('chat service stores and answers pending user input requests', async () => {
+  const { service, broadcasts } = makeChatService();
+  const requestMessage = {
+    id: 9,
+    method: 'item/tool/requestUserInput',
+    params: {
+      threadId: 'thread-1',
+      turnId: 'turn-1',
+      itemId: 'input-1',
+      questions: [{
+        id: 'choice',
+        header: '方案',
+        question: '选哪个？',
+        isOther: false,
+        isSecret: false,
+        options: [{ label: 'A', description: '推荐' }]
+      }]
+    }
+  };
+
+  let resolved = null;
+  const pending = service.handleUserInputRequest(requestMessage, (answer) => {
+    resolved = answer;
+  });
+
+  assert.equal(pending.key, 'thread-1:turn-1:input-1');
+  const requestBroadcast = broadcasts.find((payload) => payload.type === 'user-input-request');
+  assert.equal(requestBroadcast.itemId, 'input-1');
+  assert.equal(requestBroadcast.questions[0].question, '选哪个？');
+  assert.equal(broadcasts.some((payload) => payload.type === 'status-update' && payload.label === '等待你的选择'), true);
+
+  const result = service.respondToUserInput({
+    threadId: 'thread-1',
+    turnId: 'turn-1',
+    itemId: 'input-1',
+    answers: { choice: { answers: ['A'] } }
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.request.itemId, 'input-1');
+  assert.equal(result.itemId, undefined);
+  assert.deepEqual(resolved, { answers: { choice: { answers: ['A'] } } });
+  assert.equal(broadcasts.some((payload) => payload.type === 'user-input-resolved'), true);
+});
+
+test('chat service reports missing pending user input requests', () => {
+  const { service } = makeChatService();
+
+  const result = service.respondToUserInput({
+    threadId: 'thread-1',
+    turnId: 'turn-1',
+    itemId: 'missing',
+    answers: {}
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, 'not-found');
+});
+
+test('chat service clears pending user input requests when turn cleanup runs', async () => {
+  let cleanupType = null;
+  let resolved = null;
+  const requestMessage = {
+    id: 10,
+    method: 'item/tool/requestUserInput',
+    params: {
+      threadId: 'thread-1',
+      turnId: 'turn-1',
+      itemId: 'input-1',
+      questions: [{
+        id: 'choice',
+        header: '方案',
+        question: '继续吗？',
+        isOther: false,
+        isSecret: false,
+        options: [{ label: '继续', description: '' }]
+      }]
+    }
+  };
+  const { service, broadcasts } = makeChatService({
+    getDesktopBridgeStatus: async () => ({
+      strict: false,
+      connected: true,
+      mode: 'headless-local',
+      capabilities: { read: true, createThread: true, sendToOpenDesktopThread: false }
+    }),
+    runCodexTurn: async (payload, emit) => {
+      cleanupType = typeof payload.onUserInputCleanup;
+      payload.onUserInputRequest(requestMessage, (answer) => {
+        resolved = answer;
+      });
+      if (typeof payload.onUserInputCleanup === 'function') {
+        payload.onUserInputCleanup({ threadId: 'thread-1', turnId: 'turn-1' });
+      }
+      emit({ type: 'chat-error', sessionId: 'thread-1', turnId: 'turn-1', error: 'cancelled' });
+      return 'thread-1';
+    }
+  });
+
+  await service.sendChat({
+    projectId: 'project-1',
+    sessionId: 'thread-1',
+    clientTurnId: 'turn-1',
+    message: '需要选择'
+  });
+  await flushQueuedWork();
+
+  const late = service.respondToUserInput({
+    threadId: 'thread-1',
+    turnId: 'turn-1',
+    itemId: 'input-1',
+    answers: { choice: { answers: ['继续'] } }
+  });
+
+  assert.equal(cleanupType, 'function');
+  assert.deepEqual(
+    broadcasts.filter((payload) => payload.type === 'user-input-resolved').map((payload) => ({
+      threadId: payload.threadId,
+      turnId: payload.turnId,
+      itemId: payload.itemId,
+      status: payload.status,
+      reason: payload.reason
+    })),
+    [{
+      threadId: 'thread-1',
+      turnId: 'turn-1',
+      itemId: 'input-1',
+      status: 'cancelled',
+      reason: 'turn-cleanup'
+    }]
+  );
+  assert.equal(late.ok, false);
+  assert.equal(late.reason, 'not-found');
+  assert.equal(resolved, null);
+});
+
 test('sendChat routes running input through desktop turn/steer', async () => {
   let steerPayload = null;
   const { service, broadcasts } = makeChatService({
@@ -124,15 +260,42 @@ test('sendChat sends existing desktop-ipc threads through the desktop follower b
   const result = await service.sendChat({
     projectId: 'project-1',
     sessionId: 'thread-1',
-    message: '从手机发到桌面已有线程'
+    message: '从手机发到桌面已有线程',
+    serviceTier: 'fast'
   });
 
   assert.equal(result.delivery, 'started');
   assert.equal(result.sessionId, 'thread-1');
   assert.equal(result.turnId, 'desktop-turn-1');
   assert.equal(started.conversationId, 'thread-1');
+  assert.equal(started.params.serviceTier, 'fast');
   assert.equal(started.params.input[0].type, 'text');
   assert.equal(started.params.input[0].text, '从手机发到桌面已有线程');
+});
+
+test('sendChat desktop follower start omits collaboration mode by default', async () => {
+  let started = null;
+  const { service } = makeChatService({
+    getDesktopBridgeStatus: async () => ({
+      strict: true,
+      connected: true,
+      mode: 'desktop-ipc',
+      reason: null,
+      capabilities: { sendToOpenDesktopThread: true, createThread: false }
+    }),
+    startDesktopFollowerTurn: async (conversationId, params) => {
+      started = { conversationId, params };
+      return { result: { turn: { id: 'desktop-turn-default' } } };
+    }
+  });
+
+  await service.sendChat({
+    projectId: 'project-1',
+    sessionId: 'thread-1',
+    message: '正常发送到桌面'
+  });
+
+  assert.equal(Object.hasOwn(started.params, 'collaborationMode'), false);
 });
 
 test('sendChat falls back to headless local when desktop-ipc has no thread owner', async () => {
@@ -271,7 +434,7 @@ test('sendChat registers new projectless background threads for mobile and deskt
 
   assert.equal(result.accepted, true);
   assert.equal(runPayload.draftSessionId, 'draft-projectless-1');
-  assert.match(runPayload.projectPath, /\/tmp\/codex-projectless\/\d{4}-\d{2}-\d{2}\/mobile-chat-/);
+  assert.match(runPayload.projectPath.replaceAll('\\', '/'), /\/tmp\/codex-projectless\/\d{4}-\d{2}-\d{2}\/mobile-chat-/);
   assert.deepEqual(desktopRegistration, {
     threadId: 'projectless-thread-1',
     workspaceRoot: '/tmp/codex-projectless'
@@ -303,15 +466,109 @@ test('sendChat starts a headless local Codex turn when desktop bridge is in head
     projectId: 'project-1',
     draftSessionId: 'draft-project-1-1',
     clientTurnId: 'client-turn',
-    message: '桌面端没开也跑一下'
+    message: '桌面端没开也跑一下',
+    serviceTier: 'fast'
   });
 
   assert.equal(result.accepted, true);
   assert.equal(result.delivery, 'started');
   assert.equal(result.desktopBridge.mode, 'headless-local');
   assert.equal(runPayload.draftSessionId, 'draft-project-1-1');
+  assert.equal(runPayload.serviceTier, 'fast');
   assert.match(runPayload.message, /桌面端没开也跑一下/);
   assert.equal(broadcasts.some((payload) => payload.type === 'user-message'), true);
+});
+
+test('sendChat forwards plan collaboration mode to headless Codex turns', async () => {
+  let runPayload = null;
+  const { service } = makeChatService({
+    getDesktopBridgeStatus: async () => ({
+      strict: false,
+      connected: true,
+      mode: 'headless-local',
+      capabilities: { read: true, createThread: true, sendToOpenDesktopThread: false }
+    }),
+    runCodexTurn: async (payload, emit) => {
+      runPayload = payload;
+      emit({ type: 'chat-complete', sessionId: payload.sessionId, turnId: payload.turnId });
+      return payload.sessionId;
+    }
+  });
+
+  await service.sendChat({
+    projectId: 'project-1',
+    sessionId: 'thread-1',
+    clientTurnId: 'turn-plan-1',
+    message: '先做计划',
+    model: 'gpt-5.5',
+    reasoningEffort: 'xhigh',
+    collaborationMode: { mode: 'plan', settings: {} }
+  });
+
+  assert.deepEqual(runPayload.collaborationMode, {
+    mode: 'plan',
+    settings: {
+      model: 'gpt-5.5',
+      reasoning_effort: 'xhigh',
+      developer_instructions: null
+    }
+  });
+});
+
+test('sendChat forwards plan collaboration mode to desktop follower starts', async () => {
+  let started = null;
+  const { service } = makeChatService({
+    getDesktopBridgeStatus: async () => ({
+      strict: true,
+      connected: true,
+      mode: 'desktop-ipc',
+      reason: null,
+      capabilities: { sendToOpenDesktopThread: true, createThread: false }
+    }),
+    startDesktopFollowerTurn: async (conversationId, params) => {
+      started = { conversationId, params };
+      return { result: { turn: { id: 'desktop-turn-plan' } } };
+    }
+  });
+
+  await service.sendChat({
+    projectId: 'project-1',
+    sessionId: 'thread-1',
+    message: '桌面先做计划',
+    model: 'gpt-5.5',
+    reasoningEffort: 'high',
+    collaborationMode: { mode: 'plan', settings: {} }
+  });
+
+  assert.equal(started.conversationId, 'thread-1');
+  assert.deepEqual(started.params.collaborationMode, {
+    mode: 'plan',
+    settings: {
+      model: 'gpt-5.5',
+      reasoning_effort: 'high',
+      developer_instructions: null
+    }
+  });
+});
+
+test('sendChat does not forward plan collaboration mode for steer', async () => {
+  let steerPayload = null;
+  const { service } = makeChatService({
+    steerCodexTurn: async (identifier, payload) => {
+      steerPayload = { identifier, payload };
+      return { accepted: true, delivery: 'steered', sessionId: 'thread-1', turnId: 'active-turn' };
+    }
+  });
+
+  await service.sendChat({
+    projectId: 'project-1',
+    sessionId: 'thread-1',
+    message: '这个补充发到当前任务',
+    sendMode: 'steer',
+    collaborationMode: { mode: 'plan', settings: {} }
+  });
+
+  assert.equal(steerPayload.payload.collaborationMode, undefined);
 });
 
 test('queue drafts can be listed, deleted, and restored without auto starting during active work', async () => {

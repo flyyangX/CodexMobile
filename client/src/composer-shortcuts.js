@@ -8,6 +8,15 @@ export const SLASH_COMMANDS = [
     action: 'open-context'
   },
   {
+    id: 'plan',
+    token: '/计划',
+    aliases: ['/plan'],
+    title: '计划模式',
+    description: '让 Codex 先规划并等待你选择方案',
+    action: 'set-mode',
+    mode: 'plan'
+  },
+  {
     id: 'compact',
     token: '/压缩上下文',
     aliases: ['/compact'],
@@ -34,6 +43,11 @@ export const SLASH_COMMANDS = [
     action: 'insert-prompt',
     prompt: '如果任务适合拆分，请使用子代理并行处理互不冲突的部分，然后汇总结果。'
   }
+];
+
+export const COMPOSER_MODE_OPTIONS = [
+  { value: 'chat', label: 'Chat' },
+  { value: 'plan', label: 'Plan' }
 ];
 
 export function detectComposerToken(text, cursor = null) {
@@ -63,6 +77,49 @@ export function replaceComposerToken(text, token, replacement) {
   const value = String(text || '');
   const next = `${value.slice(0, token.start)}${replacement}${value.slice(token.end)}`;
   return next.replace(/[ \t]{2,}/g, ' ');
+}
+
+export function normalizeComposerMode(mode) {
+  return mode === 'plan' ? 'plan' : 'chat';
+}
+
+export function composerModeLabel(mode) {
+  const normalized = normalizeComposerMode(mode);
+  return COMPOSER_MODE_OPTIONS.find((option) => option.value === normalized)?.label || 'Chat';
+}
+
+export function selectedComposerModeForSession(modesBySession, sessionId, pendingMode = 'chat') {
+  if (!sessionId) {
+    return normalizeComposerMode(pendingMode);
+  }
+  return normalizeComposerMode(modesBySession?.[sessionId]);
+}
+
+export function migrateComposerMode(modesBySession, sourceSessionIds, targetSessionId) {
+  const current = modesBySession || {};
+  if (!targetSessionId) {
+    return current;
+  }
+  const sourceIds = (Array.isArray(sourceSessionIds) ? sourceSessionIds : [sourceSessionIds])
+    .filter((id) => id && id !== targetSessionId);
+  const sourceId = sourceIds.find((id) => current[id]);
+  if (!sourceId) {
+    return current;
+  }
+  const next = { ...current, [targetSessionId]: normalizeComposerMode(current[sourceId]) };
+  delete next[sourceId];
+  return next;
+}
+
+export function threadStartedComposerModeSourceIds(currentSession, payload = {}) {
+  const sourceIds = [];
+  if (payload.previousSessionId) {
+    sourceIds.push(payload.previousSessionId);
+  }
+  if (currentSession?.turnId && payload.turnId && currentSession.turnId === payload.turnId && currentSession.id) {
+    sourceIds.push(currentSession.id);
+  }
+  return [...new Set(sourceIds.filter((id) => id && id !== payload.sessionId))];
 }
 
 export function filteredSlashCommands(query, commands = SLASH_COMMANDS) {

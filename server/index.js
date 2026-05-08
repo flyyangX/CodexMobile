@@ -34,6 +34,7 @@ import { abortCodexTurn, getActiveRuns, runCodexTurn, steerCodexTurn } from './c
 import {
   interruptDesktopFollowerTurn,
   startDesktopFollowerTurn,
+  submitDesktopFollowerUserInput,
   steerDesktopFollowerTurn
 } from './desktop-ipc-client.js';
 import { GENERATED_ROOT, isImageRequest, runImageTurn } from './image-generator.js';
@@ -44,6 +45,7 @@ import { publicVoiceSpeechStatus, synthesizeSpeech } from './voice-speaker.js';
 import { publicVoiceRealtimeStatus, startVoiceRealtimeProxy } from './realtime-voice.js';
 import { maybeAutoNameSession } from './session-title-generator.js';
 import { createChatService } from './chat-service.js';
+import { normalizeDesktopUserInputSubmission } from './user-input-requests.js';
 import { searchProjectFiles } from './file-search.js';
 import { htmlEscape, readBody, sendHtml, sendJson } from './http-utils.js';
 import { createPushService } from './push-service.js';
@@ -922,6 +924,28 @@ async function handleApi(req, res, url) {
       sendJson(res, 202, result);
     } catch (error) {
       sendJson(res, error.statusCode || 500, { error: error.message || 'Failed to send chat' });
+    }
+    return;
+  }
+
+  if (method === 'POST' && pathname === '/api/chat/user-input/respond') {
+    const body = await readBody(req);
+    try {
+      const result = chatService.respondToUserInput(body);
+      if (result.ok) {
+        sendJson(res, 200, { accepted: true });
+        return;
+      }
+      const desktopSubmission = normalizeDesktopUserInputSubmission(body);
+      if (desktopSubmission) {
+        const { conversationId, ...request } = desktopSubmission;
+        await submitDesktopFollowerUserInput(conversationId, request);
+        sendJson(res, 200, { accepted: true, delivery: 'desktop-ipc' });
+        return;
+      }
+      sendJson(res, 404, { error: 'User input request not found' });
+    } catch (error) {
+      sendJson(res, error.statusCode || 500, { error: error.message || 'Failed to submit user input' });
     }
     return;
   }

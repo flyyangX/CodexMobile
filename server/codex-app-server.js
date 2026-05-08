@@ -111,7 +111,7 @@ function unavailableBridgeError(transport) {
   return error;
 }
 
-function defaultServerRequestResult(message) {
+export function defaultServerRequestResult(message) {
   switch (message?.method) {
     case 'item/commandExecution/requestApproval':
       return { decision: 'decline' };

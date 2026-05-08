@@ -14,6 +14,7 @@ import {
   GitBranch,
   GitCommitHorizontal,
   Headphones,
+  HelpCircle,
   Image,
   Loader2,
   Menu,
@@ -36,7 +37,8 @@ import {
   UploadCloud,
   Volume2,
   Wifi,
-  X
+  X,
+  Zap
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import ReactMarkdown, { defaultUrlTransform } from 'react-markdown';
@@ -49,19 +51,53 @@ import { mergeActivityStep } from './activity-merge.js';
 import { isPlaceholderTimelineItem } from './activity-timeline.js';
 import { isNearChatBottom, shouldFollowChatOutput } from './chat-scroll.js';
 import { composerSendState, desktopBridgeCanCreateThread } from './send-state.js';
+import { buildClientCollaborationMode } from './plan-mode-client.js';
+import {
+  dragEventHasFiles,
+  filesFromClipboardEvent,
+  filesFromDropEvent
+} from './upload-inputs.js';
 import {
   detectComposerToken,
   filteredSlashCommands,
+  COMPOSER_MODE_OPTIONS,
+  composerModeLabel,
+  migrateComposerMode,
+  normalizeComposerMode,
+  selectedComposerModeForSession,
+  threadStartedComposerModeSourceIds,
   replaceComposerToken
 } from './composer-shortcuts.js';
+import {
+  THEME_OPTIONS,
+  applyThemeToDocument,
+  normalizeThemePreference,
+  resolveThemePreference
+} from './theme-preference.js';
+import {
+  DEFAULT_PERMISSION_MODE,
+  PERMISSION_OPTIONS,
+  permissionLabel,
+  permissionShortLabel
+} from './permission-mode.js';
+import {
+  DEFAULT_MODEL_SPEED,
+  MODEL_SPEED_OPTIONS,
+  normalizeModelSpeed,
+  serviceTierForModelSpeed
+} from './model-preferences.js';
 import { connectionRecoveryState } from './connection-recovery.js';
 import {
   browserNotificationPermission,
   isStandalonePwa,
+  markUserInputMessageResolved,
+  mergePendingUserInputMessages,
   notificationFromPayload,
   notificationPreferenceEnabled,
   setNotificationPreferenceEnabled,
-  shouldUseWebNotification
+  shouldUseWebNotification,
+  upsertUserInputMessage,
+  userInputKey
 } from './notification-events.js';
 import {
   browserPushSupported,
@@ -142,6 +178,8 @@ const DEFAULT_REASONING_EFFORT = 'xhigh';
 const REASONING_DEFAULT_VERSION = 'xhigh-v1';
 const THEME_KEY = 'codexmobile.theme';
 const SELECTED_SKILLS_KEY = 'codexmobile.selectedSkills';
+const MODEL_SPEED_KEY = 'codexmobile.modelSpeed';
+const FOLLOW_UP_MODE_KEY = 'codexmobile.followUpMode';
 const VOICE_MAX_RECORDING_MS = 90 * 1000;
 const VOICE_MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
 const VOICE_MIME_CANDIDATES = ['audio/mp4', 'audio/webm;codecs=opus', 'audio/webm'];
@@ -219,18 +257,16 @@ async function copyTextToClipboard(text) {
   }
 }
 
-const PERMISSION_OPTIONS = [
-  { value: 'default', label: '默认权限' },
-  { value: 'acceptEdits', label: '自动接受编辑' },
-  { value: 'bypassPermissions', label: '完全访问', danger: true }
-];
-const DEFAULT_PERMISSION_MODE = 'bypassPermissions';
-
 const REASONING_OPTIONS = [
   { value: 'low', label: '低' },
   { value: 'medium', label: '中' },
   { value: 'high', label: '高' },
   { value: 'xhigh', label: '超高' }
+];
+
+const FOLLOW_UP_OPTIONS = [
+  { value: 'queue', label: '排队', description: '当前任务结束后自动发送' },
+  { value: 'steer', label: '引导', description: '提交给当前运行，不中断模型' }
 ];
 
 function formatTime(value) {
@@ -425,12 +461,12 @@ function shortModelName(model) {
     .replace(/-mini$/i, ' mini');
 }
 
-function permissionLabel(value) {
-  return PERMISSION_OPTIONS.find((option) => option.value === value)?.label || '默认权限';
-}
-
 function reasoningLabel(value) {
   return REASONING_OPTIONS.find((option) => option.value === value)?.label || '超高';
+}
+
+function normalizeFollowUpMode(value) {
+  return value === 'steer' ? 'steer' : 'queue';
 }
 
 function safeStoredJsonArray(key) {
@@ -1452,8 +1488,8 @@ function Drawer({
   onNewConversation,
   onSync,
   syncing,
-  theme,
-  setTheme,
+  themePreference,
+  setThemePreference,
   canCreateThread = true,
   createThreadUnavailableReason = ''
 }) {
@@ -1514,20 +1550,16 @@ function Drawer({
                   <span>主题选择</span>
                 </div>
                 <div className="theme-segment" role="group" aria-label="主题选择">
-                  <button
-                    type="button"
-                    className={theme === 'light' ? 'is-selected' : ''}
-                    onClick={() => setTheme('light')}
-                  >
-                    白色
-                  </button>
-                  <button
-                    type="button"
-                    className={theme === 'dark' ? 'is-selected' : ''}
-                    onClick={() => setTheme('dark')}
-                  >
-                    黑色
-                  </button>
+                  {THEME_OPTIONS.map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      className={themePreference === option.value ? 'is-selected' : ''}
+                      onClick={() => setThemePreference(option.value)}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
                 </div>
               </div>
             </section>
@@ -3967,7 +3999,102 @@ function renderMarkdownBlocks(content, onPreviewImage) {
   return blocks.length ? blocks : null;
 }
 
-function ChatMessage({ message, now, onPreviewImage, onDeleteMessage }) {
+function UserInputRequestMessage({ message, onSubmit }) {
+  const [answers, setAnswers] = useState({});
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const answered = message.status === 'answered';
+  const questions = Array.isArray(message.questions) ? message.questions : [];
+
+  function questionKey(question, index) {
+    return question?.id || `question-${index}`;
+  }
+
+  function setQuestionAnswer(questionId, value) {
+    setAnswers((current) => ({
+      ...current,
+      [questionId]: { answers: value ? [value] : [] }
+    }));
+  }
+
+  async function submit(nextAnswers) {
+    setBusy(true);
+    setError('');
+    try {
+      await onSubmit?.(message, nextAnswers);
+    } catch (submitError) {
+      setError(submitError.message || '提交失败');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="message-row is-activity">
+      <div className={`message-bubble user-input-card ${answered ? 'is-answered' : ''}`}>
+        <div className="user-input-card-head">
+          {answered ? <Check size={16} /> : <HelpCircle size={16} />}
+          <span>{answered ? '已提交选择' : '等待你的选择'}</span>
+        </div>
+        {questions.map((question, index) => {
+          const id = questionKey(question, index);
+          const selectedAnswer = answers[id]?.answers?.[0] || '';
+          const hasOptions = Array.isArray(question.options) && question.options.length > 0;
+          const disabled = busy || answered;
+          return (
+            <div key={id} className="user-input-question">
+              {question.header ? <strong>{question.header}</strong> : null}
+              {question.question ? <p>{question.question}</p> : null}
+              {hasOptions ? (
+                <div className="user-input-options">
+                  {question.options.map((option, optionIndex) => {
+                    const optionLabel = String(option?.label || '');
+                    const optionKey = optionLabel || `option-${optionIndex}`;
+                    return (
+                      <button
+                        key={optionKey}
+                        type="button"
+                        className={selectedAnswer && selectedAnswer === optionLabel ? 'is-selected' : ''}
+                        disabled={disabled}
+                        onClick={() => setQuestionAnswer(id, optionLabel)}
+                      >
+                        <span>{optionLabel}</span>
+                        {option.description ? <small>{option.description}</small> : null}
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : null}
+              {question.isOther || !hasOptions ? (
+                <input
+                  type={question.isSecret ? 'password' : 'text'}
+                  value={selectedAnswer}
+                  disabled={disabled}
+                  onChange={(event) => setQuestionAnswer(id, event.target.value)}
+                />
+              ) : null}
+            </div>
+          );
+        })}
+        {error || message.error ? <div className="user-input-error">{error || message.error}</div> : null}
+        {!answered ? (
+          <div className="user-input-actions">
+            <button type="button" disabled={busy} onClick={() => submit(answers)}>
+              {busy ? <Loader2 className="spin" size={15} /> : <Check size={15} />}
+              <span>提交</span>
+            </button>
+            <button type="button" disabled={busy} onClick={() => submit({})}>
+              <X size={15} />
+              <span>取消</span>
+            </button>
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function ChatMessage({ message, now, onPreviewImage, onDeleteMessage, onSubmitUserInput }) {
   const [copied, setCopied] = useState(false);
   const copiedTimerRef = useRef(null);
 
@@ -3977,6 +4104,9 @@ function ChatMessage({ message, now, onPreviewImage, onDeleteMessage }) {
     }
   }, []);
 
+  if (message.role === 'user_input_request') {
+    return <UserInputRequestMessage message={message} onSubmit={onSubmitUserInput} />;
+  }
   if (message.role === 'activity') {
     return <ActivityMessage message={message} now={now} />;
   }
@@ -4025,7 +4155,7 @@ function ChatMessage({ message, now, onPreviewImage, onDeleteMessage }) {
   );
 }
 
-function ChatPane({ messages, selectedSession, running, now, onPreviewImage, onDeleteMessage }) {
+function ChatPane({ messages, selectedSession, running, now, onPreviewImage, onDeleteMessage, onSubmitUserInput }) {
   const paneRef = useRef(null);
   const contentRef = useRef(null);
   const bottomPinnedRef = useRef(true);
@@ -4119,6 +4249,7 @@ function ChatPane({ messages, selectedSession, running, now, onPreviewImage, onD
             now={now}
             onPreviewImage={onPreviewImage}
             onDeleteMessage={onDeleteMessage}
+            onSubmitUserInput={onSubmitUserInput}
           />
         ))}
       </div>
@@ -4353,8 +4484,14 @@ function Composer({
   models,
   selectedModel,
   onSelectModel,
+  selectedModelSpeed,
+  onSelectModelSpeed,
   selectedReasoningEffort,
   onSelectReasoningEffort,
+  followUpMode,
+  onSelectFollowUpMode,
+  composerMode,
+  onSelectComposerMode,
   skills,
   selectedSkillPaths,
   onToggleSkill,
@@ -4365,6 +4502,7 @@ function Composer({
   attachments,
   onUploadFiles,
   onRemoveAttachment,
+  dropActive,
   fileMentions,
   onAddFileMention,
   onRemoveFileMention,
@@ -4381,6 +4519,7 @@ function Composer({
   const imageInputRef = useRef(null);
   const fileInputRef = useRef(null);
   const [openMenu, setOpenMenu] = useState(null);
+  const [modelMenuPanel, setModelMenuPanel] = useState('root');
   const [skillFilter, setSkillFilter] = useState('');
   const [cursorPosition, setCursorPosition] = useState(0);
   const [fileSearch, setFileSearch] = useState({ query: '', loading: false, results: [] });
@@ -4417,6 +4556,7 @@ function Composer({
     uploading,
     desktopBridge,
     steerable: runStatus?.steerable !== false,
+    followUpMode,
     sessionIsDraft: isDraftSession(selectedSession)
   });
   const stopMode = sendState.mode === 'abort';
@@ -4490,6 +4630,12 @@ function Composer({
   }
 
   function runSlashCommand(command) {
+    if (command.action === 'set-mode') {
+      onSelectComposerMode?.(command.mode || 'chat');
+      replaceCurrentToken('');
+      setOpenMenu(null);
+      return;
+    }
     replaceCurrentToken(command.prompt ? `${command.prompt} ` : '');
     if (command.action === 'open-context') {
       setOpenMenu('context');
@@ -4532,6 +4678,9 @@ function Composer({
   }
 
   function toggleMenu(name) {
+    if (name === 'model') {
+      setModelMenuPanel('root');
+    }
     setOpenMenu((current) => (current === name ? null : name));
     if (name !== 'skill') {
       setSkillFilter('');
@@ -4547,6 +4696,23 @@ function Composer({
     setOpenMenu(null);
   }
 
+  function uploadFiles(files) {
+    if (!files.length) {
+      return;
+    }
+    onUploadFiles(files);
+    setOpenMenu(null);
+  }
+
+  function handlePaste(event) {
+    const files = filesFromClipboardEvent(event);
+    if (!files.length) {
+      return;
+    }
+    event.preventDefault();
+    uploadFiles(files);
+  }
+
   const tokenPanelOpen = !openMenu && composerToken && (
     (composerToken.type === 'slash' && slashMatches.length > 0) ||
     (composerToken.type === 'skill') ||
@@ -4554,7 +4720,10 @@ function Composer({
   );
 
   return (
-    <form className="composer-wrap" onSubmit={submit}>
+    <form
+      className={`composer-wrap ${dropActive ? 'is-drop-active' : ''}`}
+      onSubmit={submit}
+    >
       <input
         ref={imageInputRef}
         className="file-input"
@@ -4580,6 +4749,16 @@ function Composer({
             <FileText size={17} />
             文件
           </button>
+          <button type="button" className="mobile-attach-option" onClick={() => setOpenMenu('composer-mode')}>
+            <MessageSquare size={17} />
+            <span className="menu-item-main">计划</span>
+            <ChevronRight className="menu-chevron" size={16} />
+          </button>
+          <button type="button" className="mobile-attach-option" onClick={() => setOpenMenu('skill')}>
+            <Bot size={17} />
+            <span className="menu-item-main">{selectedSkillSummary(selectedSkills)}</span>
+            <ChevronRight className="menu-chevron" size={16} />
+          </button>
         </div>
       ) : null}
       {openMenu === 'permission' ? (
@@ -4595,6 +4774,24 @@ function Composer({
               }}
             >
               {permissionMode === option.value ? <Check size={16} /> : <span className="menu-spacer" />}
+              {option.label}
+            </button>
+          ))}
+        </div>
+      ) : null}
+      {openMenu === 'composer-mode' ? (
+        <div className="composer-menu mode-menu">
+          {COMPOSER_MODE_OPTIONS.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              className={composerMode === option.value ? 'is-selected' : ''}
+              onClick={() => {
+                onSelectComposerMode?.(option.value);
+                setOpenMenu(null);
+              }}
+            >
+              {composerMode === option.value ? <Check size={16} /> : <span className="menu-spacer" />}
               {option.label}
             </button>
           ))}
@@ -4648,37 +4845,88 @@ function Composer({
       ) : null}
       {openMenu === 'model' ? (
         <div className="composer-menu model-menu">
-          <div className="menu-section-label">模型</div>
-          {modelList.map((model) => (
-            <button
-              key={model.value}
-              type="button"
-              className={selectedModel === model.value ? 'is-selected' : ''}
-              onClick={() => {
-                onSelectModel(model.value);
-                setOpenMenu(null);
-              }}
-            >
-              {selectedModel === model.value ? <Check size={16} /> : <span className="menu-spacer" />}
-              <span>{model.label}</span>
-            </button>
-          ))}
-          <div className="menu-divider" />
-          <div className="menu-section-label">智能</div>
-          {REASONING_OPTIONS.map((option) => (
-            <button
-              key={option.value}
-              type="button"
-              className={selectedReasoningEffort === option.value ? 'is-selected' : ''}
-              onClick={() => {
-                onSelectReasoningEffort(option.value);
-                setOpenMenu(null);
-              }}
-            >
-              {selectedReasoningEffort === option.value ? <Check size={16} /> : <span className="menu-spacer" />}
-              <span>{option.label}</span>
-            </button>
-          ))}
+          {modelMenuPanel === 'root' ? (
+            <>
+              <div className="menu-section-label">智能</div>
+              {REASONING_OPTIONS.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  className={selectedReasoningEffort === option.value ? 'is-selected' : ''}
+                  onClick={() => {
+                    onSelectReasoningEffort(option.value);
+                    setOpenMenu(null);
+                  }}
+                >
+                  {selectedReasoningEffort === option.value ? <Check size={16} /> : <span className="menu-spacer" />}
+                  <span>{option.label}</span>
+                </button>
+              ))}
+              <div className="menu-divider" />
+              <button type="button" className="model-submenu-trigger" onClick={() => setModelMenuPanel('model')}>
+                <span className="menu-spacer" />
+                <span className="menu-item-main">{selectedModelLabel}</span>
+                <ChevronRight className="menu-chevron" size={16} />
+              </button>
+              <button type="button" className="model-submenu-trigger" onClick={() => setModelMenuPanel('speed')}>
+                <span className="menu-spacer" />
+                <span className="menu-item-main">速度</span>
+                <ChevronRight className="menu-chevron" size={16} />
+              </button>
+            </>
+          ) : null}
+          {modelMenuPanel === 'model' ? (
+            <>
+              <button type="button" className="menu-back-button" onClick={() => setModelMenuPanel('root')}>
+                <ChevronLeft size={16} />
+                <span>模型</span>
+              </button>
+              <div className="menu-divider" />
+              {modelList.map((model) => (
+                <button
+                  key={model.value}
+                  type="button"
+                  className={selectedModel === model.value ? 'is-selected' : ''}
+                  onClick={() => {
+                    onSelectModel(model.value);
+                    setOpenMenu(null);
+                    setModelMenuPanel('root');
+                  }}
+                >
+                  {selectedModel === model.value ? <Check size={16} /> : <span className="menu-spacer" />}
+                  <span>{model.label}</span>
+                </button>
+              ))}
+            </>
+          ) : null}
+          {modelMenuPanel === 'speed' ? (
+            <>
+              <button type="button" className="menu-back-button" onClick={() => setModelMenuPanel('root')}>
+                <ChevronLeft size={16} />
+                <span>速度</span>
+              </button>
+              <div className="menu-divider" />
+              {MODEL_SPEED_OPTIONS.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  className={selectedModelSpeed === option.value ? 'is-selected' : ''}
+                  onClick={() => {
+                    onSelectModelSpeed(option.value);
+                    setOpenMenu(null);
+                    setModelMenuPanel('root');
+                  }}
+                >
+                  {selectedModelSpeed === option.value ? <Check size={16} /> : <span className="menu-spacer" />}
+                  {option.value === 'fast' ? <Zap size={15} /> : null}
+                  <span className="menu-item-main">
+                    <strong>{option.label}</strong>
+                    <small>{option.description}</small>
+                  </span>
+                </button>
+              ))}
+            </>
+          ) : null}
         </div>
       ) : null}
       {openMenu === 'context' ? (
@@ -4776,33 +5024,38 @@ function Composer({
       )}
       {openMenu === 'send-mode' ? (
         <div className="composer-menu send-mode-menu">
+          <div className="menu-section-label">跟进行为</div>
           <button
             type="button"
             disabled={!sendState.canSteer}
+            className={followUpMode === 'steer' ? 'is-selected' : ''}
             onClick={() => {
               if (!sendState.canSteer) {
                 return;
               }
+              onSelectFollowUpMode('steer');
               onSubmit({ mode: 'steer' });
               setOpenMenu(null);
             }}
           >
-            <MessageSquare size={16} />
+            {followUpMode === 'steer' ? <Check size={16} /> : <MessageSquare size={16} />}
             <span>
-              <strong>发送到当前任务</strong>
-              <small>{sendState.canSteer ? '直接补充给桌面端正在执行的任务' : '当前任务暂时不能接收补充消息'}</small>
+              <strong>引导</strong>
+              <small>{sendState.canSteer ? '提交给当前运行，不中断模型' : '当前任务暂时不能接收引导'}</small>
             </span>
           </button>
           <button
             type="button"
+            className={followUpMode === 'queue' ? 'is-selected' : ''}
             onClick={() => {
+              onSelectFollowUpMode('queue');
               onSubmit({ mode: 'queue' });
               setOpenMenu(null);
             }}
           >
-            <MessageSquarePlus size={16} />
+            {followUpMode === 'queue' ? <Check size={16} /> : <MessageSquarePlus size={16} />}
             <span>
-              <strong>加入队列</strong>
+              <strong>排队</strong>
               <small>当前任务结束后自动发送</small>
             </span>
           </button>
@@ -4816,10 +5069,16 @@ function Composer({
           >
             <Square size={15} />
             <span>
-              <strong>中止并发送</strong>
-              <small>停下当前任务，用这条消息重新引导</small>
+              <strong>停止并发送</strong>
+              <small>停止当前任务，用这条消息重新开始</small>
             </span>
           </button>
+        </div>
+      ) : null}
+      {dropActive ? (
+        <div className="composer-drop-overlay" aria-hidden="true">
+          <UploadCloud size={22} />
+          <span>松开上传到当前消息</span>
         </div>
       ) : null}
       <div className="composer">
@@ -4857,6 +5116,7 @@ function Composer({
           onClick={updateCursorFromTextarea}
           onKeyUp={updateCursorFromTextarea}
           onFocus={() => setOpenMenu(null)}
+          onPaste={handlePaste}
           placeholder="给 Codex 发送消息"
         />
         <div className="composer-controls">
@@ -4864,8 +5124,25 @@ function Composer({
             <button type="button" className="ghost-icon" aria-label="添加" onClick={() => toggleMenu('attach')} disabled={uploading}>
               <Plus size={21} />
             </button>
-            <button type="button" className="permission-pill" onClick={() => toggleMenu('permission')}>
-              {permissionLabel(permissionMode)}
+            <button
+              type="button"
+              className="permission-pill"
+              aria-label={`权限：${permissionLabel(permissionMode)}`}
+              onClick={() => toggleMenu('permission')}
+            >
+              <span className="permission-label-full">{permissionLabel(permissionMode)}</span>
+              <span className="permission-label-short" aria-hidden="true">{permissionShortLabel(permissionMode)}</span>
+              <ChevronDown size={15} />
+            </button>
+            <button
+              type="button"
+              className="mode-select"
+              aria-label="协作模式"
+              aria-haspopup="menu"
+              aria-expanded={openMenu === 'composer-mode'}
+              onClick={() => toggleMenu('composer-mode')}
+            >
+              <span>{composerModeLabel(composerMode)}</span>
               <ChevronDown size={15} />
             </button>
             <button type="button" className="skill-select" onClick={() => toggleMenu('skill')}>
@@ -4881,7 +5158,8 @@ function Composer({
               onToggle={() => toggleMenu('context')}
             />
             <button type="button" className="model-select" onClick={() => toggleMenu('model')}>
-              {shortModelName(selectedModelLabel)} {reasoningLabel(selectedReasoningEffort)}
+              {selectedModelSpeed === 'fast' ? <Zap className="model-speed-icon" size={14} /> : null}
+              <span>{shortModelName(selectedModelLabel)} {reasoningLabel(selectedReasoningEffort)}</span>
               <ChevronDown size={15} />
             </button>
             <button
@@ -4905,13 +5183,22 @@ export default function App() {
   const [contextStatus, setContextStatus] = useState(() => normalizeContextStatus(DEFAULT_STATUS.context));
   const [authenticated, setAuthenticated] = useState(Boolean(getToken()));
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [desktopDrawerCollapsed, setDesktopDrawerCollapsed] = useState(false);
   const [projects, setProjects] = useState([]);
   const [selectedProject, setSelectedProject] = useState(null);
   const [expandedProjectIds, setExpandedProjectIds] = useState({});
   const [sessionsByProject, setSessionsByProject] = useState({});
   const [loadingProjectId, setLoadingProjectId] = useState(null);
   const [selectedSession, setSelectedSession] = useState(null);
+  const [composerModesBySession, setComposerModesBySession] = useState({});
+  const [pendingComposerMode, setPendingComposerMode] = useState('chat');
+  const selectedComposerMode = selectedComposerModeForSession(
+    composerModesBySession,
+    selectedSession?.id || '',
+    pendingComposerMode
+  );
   const [messages, setMessages] = useState([]);
+  const [pendingUserInputs, setPendingUserInputs] = useState({});
   const [activityClockNow, setActivityClockNow] = useState(() => Date.now());
   const [completedSessionIds, setCompletedSessionIds] = useState({});
   const [previewImage, setPreviewImage] = useState(null);
@@ -4927,8 +5214,15 @@ export default function App() {
   const [notificationPermission, setNotificationPermission] = useState(() => browserNotificationPermission());
   const [notificationsEnabled, setNotificationsEnabled] = useState(() => notificationPreferenceEnabled());
   const [uploading, setUploading] = useState(false);
+  const [appDragDepth, setAppDragDepth] = useState(0);
   const [permissionMode, setPermissionMode] = useState(DEFAULT_PERMISSION_MODE);
   const [selectedModel, setSelectedModel] = useState(DEFAULT_STATUS.model);
+  const [selectedModelSpeed, setSelectedModelSpeed] = useState(() =>
+    normalizeModelSpeed(localStorage.getItem(MODEL_SPEED_KEY) || DEFAULT_MODEL_SPEED)
+  );
+  const [followUpMode, setFollowUpMode] = useState(() =>
+    normalizeFollowUpMode(localStorage.getItem(FOLLOW_UP_MODE_KEY))
+  );
   const [selectedReasoningEffort, setSelectedReasoningEffort] = useState(() => {
     const defaultVersion = localStorage.getItem('codexmobile.reasoningDefaultVersion');
     if (defaultVersion !== REASONING_DEFAULT_VERSION) {
@@ -4943,15 +5237,22 @@ export default function App() {
   );
   const [runningById, setRunningById] = useState({});
   const [threadRuntimeById, setThreadRuntimeById] = useState({});
-  const [theme, setTheme] = useState(() =>
-    localStorage.getItem(THEME_KEY) === 'dark' ? 'dark' : 'light'
+  const [themePreference, setThemePreference] = useState(() =>
+    normalizeThemePreference(localStorage.getItem(THEME_KEY), 'system')
   );
+  const [systemPrefersDarkTheme, setSystemPrefersDarkTheme] = useState(() =>
+    typeof window !== 'undefined' &&
+    typeof window.matchMedia === 'function' &&
+    window.matchMedia('(prefers-color-scheme: dark)').matches
+  );
+  const effectiveTheme = resolveThemePreference(themePreference, systemPrefersDarkTheme);
   const [syncing, setSyncing] = useState(false);
   const [connectionState, setConnectionState] = useState(() => (getToken() ? 'connecting' : 'disconnected'));
   const wsRef = useRef(null);
   const selectedProjectRef = useRef(null);
   const selectedSessionRef = useRef(null);
   const messagesRef = useRef([]);
+  const pendingUserInputsRef = useRef({});
   const autoTitleSyncRef = useRef(new Set());
   const runningByIdRef = useRef({});
   const activePollsRef = useRef(new Set());
@@ -4960,6 +5261,7 @@ export default function App() {
   const desktopIpcPendingRunsRef = useRef(new Map());
   const voiceDialogRecorderRef = useRef(null);
   const toastTimersRef = useRef(new Map());
+  const uploadBatchCountRef = useRef(0);
   const voiceDialogChunksRef = useRef([]);
   const voiceDialogStreamRef = useRef(null);
   const voiceDialogTimerRef = useRef(null);
@@ -5040,6 +5342,16 @@ export default function App() {
       root.style.removeProperty('--app-height');
       root.style.removeProperty('--app-width');
       delete root.dataset.keyboard;
+    };
+  }, []);
+
+  useEffect(() => {
+    const clearDropState = () => setAppDragDepth(0);
+    window.addEventListener('blur', clearDropState);
+    window.addEventListener('dragend', clearDropState);
+    return () => {
+      window.removeEventListener('blur', clearDropState);
+      window.removeEventListener('dragend', clearDropState);
     };
   }, []);
 
@@ -6235,8 +6547,9 @@ export default function App() {
     try {
       const data = await apiFetch(sessionMessagesApiPath(payload.sessionId));
       if (data.messages?.length && hasVisibleAssistantForTurn(data.messages, payload)) {
+        const loadedMessages = messagesWithPendingUserInputs(data.messages, { id: payload.sessionId });
         setContextStatus((current) => mergeContextStatus(current, data.context || DEFAULT_STATUS.context, DEFAULT_STATUS.context));
-        setMessages((current) => mergeLoadedMessagesPreservingActivity(current, data.messages, payload));
+        setMessages((current) => mergeLoadedMessagesPreservingActivity(current, loadedMessages, payload));
         return true;
       }
     } catch {
@@ -6322,6 +6635,22 @@ export default function App() {
   }, [messages]);
 
   useEffect(() => {
+    pendingUserInputsRef.current = pendingUserInputs;
+  }, [pendingUserInputs]);
+
+  function messagesWithPendingUserInputs(nextMessages, session = selectedSessionRef.current) {
+    return mergePendingUserInputMessages(nextMessages || [], pendingUserInputsRef.current, session);
+  }
+
+  function updatePendingUserInputs(updater) {
+    setPendingUserInputs((current) => {
+      const next = updater(current);
+      pendingUserInputsRef.current = next;
+      return next;
+    });
+  }
+
+  useEffect(() => {
     if (!authenticated || !selectedSession?.id || isDraftSession(selectedSession)) {
       return undefined;
     }
@@ -6357,10 +6686,11 @@ export default function App() {
               desktopThreadHasAssistantAfterLocalSend(messagesRef.current, data.messages)
             );
           setContextStatus((current) => mergeContextStatus(current, data.context || DEFAULT_STATUS.context, DEFAULT_STATUS.context));
+          const loadedMessages = messagesWithPendingUserInputs(data.messages, { id: sessionId });
           setMessages((current) =>
-            messageStreamSignature(current) === messageStreamSignature(data.messages)
+            messageStreamSignature(current) === messageStreamSignature(loadedMessages)
               ? current
-              : mergeLiveSelectedThreadMessages(current, data.messages)
+              : mergeLiveSelectedThreadMessages(current, loadedMessages)
           );
           if (shouldCompleteDesktopRun) {
             completeDesktopIpcPendingRun(sessionId);
@@ -6455,9 +6785,27 @@ export default function App() {
   }, [messages, runningById, voiceDialogOpen]);
 
   useEffect(() => {
-    localStorage.setItem(THEME_KEY, theme);
-    document.documentElement.dataset.theme = theme;
-  }, [theme]);
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+      return undefined;
+    }
+    const media = window.matchMedia('(prefers-color-scheme: dark)');
+    const updateSystemTheme = () => setSystemPrefersDarkTheme(Boolean(media.matches));
+    updateSystemTheme();
+    if (typeof media.addEventListener === 'function') {
+      media.addEventListener('change', updateSystemTheme);
+      return () => media.removeEventListener('change', updateSystemTheme);
+    }
+    if (typeof media.addListener === 'function') {
+      media.addListener(updateSystemTheme);
+      return () => media.removeListener(updateSystemTheme);
+    }
+    return undefined;
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem(THEME_KEY, themePreference);
+    applyThemeToDocument(document, effectiveTheme);
+  }, [effectiveTheme, themePreference]);
 
   useEffect(() => {
     if (selectedReasoningEffort) {
@@ -6468,6 +6816,14 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem(SELECTED_SKILLS_KEY, JSON.stringify(selectedSkillPaths));
   }, [selectedSkillPaths]);
+
+  useEffect(() => {
+    localStorage.setItem(MODEL_SPEED_KEY, normalizeModelSpeed(selectedModelSpeed));
+  }, [selectedModelSpeed]);
+
+  useEffect(() => {
+    localStorage.setItem(FOLLOW_UP_MODE_KEY, normalizeFollowUpMode(followUpMode));
+  }, [followUpMode]);
 
   useEffect(() => {
     if (!Array.isArray(status.skills) || !status.skills.length || !selectedSkillPaths.length) {
@@ -6545,7 +6901,7 @@ export default function App() {
           setContextStatus(normalizeContextStatus(refreshed.context || DEFAULT_STATUS.context, DEFAULT_STATUS.context));
           const messageData = await apiFetch(sessionMessagesApiPath(refreshed.id));
           if (selectedSessionRef.current?.id === refreshed.id) {
-            setMessages(messageData.messages || []);
+            setMessages(messagesWithPendingUserInputs(messageData.messages || [], refreshed));
             setContextStatus(
               normalizeContextStatus(messageData.context || refreshed.context || DEFAULT_STATUS.context, DEFAULT_STATUS.context)
             );
@@ -6562,7 +6918,7 @@ export default function App() {
           setContextStatus(normalizeContextStatus(next.context || DEFAULT_STATUS.context, DEFAULT_STATUS.context));
           const messageData = await apiFetch(sessionMessagesApiPath(next.id));
           if (selectedSessionRef.current?.id === next.id) {
-            setMessages(messageData.messages || []);
+            setMessages(messagesWithPendingUserInputs(messageData.messages || [], next));
             setContextStatus(normalizeContextStatus(messageData.context || next.context || DEFAULT_STATUS.context, DEFAULT_STATUS.context));
           }
         } else {
@@ -6704,6 +7060,9 @@ export default function App() {
               : message
           )
         );
+        setComposerModesBySession((current) =>
+          migrateComposerMode(current, threadStartedComposerModeSourceIds(currentSession, payload), payload.sessionId)
+        );
         return;
       }
       if (payload.type === 'message-deleted') {
@@ -6774,6 +7133,28 @@ export default function App() {
         if (payload.done !== false) {
           applyAutoSessionTitle(payload, payload.content);
         }
+        return;
+      }
+      if (payload.type === 'user-input-request') {
+        notifyFromPayload(payload);
+        const key = userInputKey(payload);
+        updatePendingUserInputs((current) => ({
+          ...current,
+          [key]: { ...payload, key, status: 'pending', error: '' }
+        }));
+        if (payloadMatchesCurrentConversation({ ...payload, sessionId: payload.threadId || payload.sessionId })) {
+          setMessages((current) => upsertUserInputMessage(current, { ...payload, key }));
+        }
+        return;
+      }
+      if (payload.type === 'user-input-resolved') {
+        const key = userInputKey(payload);
+        updatePendingUserInputs((current) => {
+          const next = { ...current };
+          delete next[key];
+          return next;
+        });
+        setMessages((current) => markUserInputMessageResolved(current, payload));
         return;
       }
       if (payload.type === 'status-update') {
@@ -6976,7 +7357,7 @@ export default function App() {
     if (selectedSessionRef.current?.id !== requestedSessionId) {
       return;
     }
-    setMessages(data.messages || []);
+    setMessages(messagesWithPendingUserInputs(data.messages || [], session));
     setContextStatus(normalizeContextStatus(data.context || session.context || DEFAULT_STATUS.context, DEFAULT_STATUS.context));
     setDrawerOpen(false);
   }
@@ -7194,13 +7575,71 @@ export default function App() {
     setSessionsByProject((current) => upsertSessionInProject(current, project.id, draft));
     setMessages([]);
     setAttachments([]);
+    setComposerModesBySession((current) => ({ ...current, [draft.id]: 'chat' }));
+    setPendingComposerMode('chat');
     setDrawerOpen(false);
   }
 
+  function setSelectedComposerMode(mode) {
+    const normalized = normalizeComposerMode(mode);
+    const sessionKey = selectedSessionRef.current?.id || selectedSession?.id || '';
+    if (!sessionKey) {
+      setPendingComposerMode(normalized);
+      return;
+    }
+    setComposerModesBySession((current) => ({
+      ...current,
+      [sessionKey]: normalized
+    }));
+  }
+
+  function clearAppDropState() {
+    setAppDragDepth(0);
+  }
+
+  function handleAppDragEnter(event) {
+    if (!dragEventHasFiles(event)) {
+      return;
+    }
+    event.preventDefault();
+    setAppDragDepth((value) => value + 1);
+  }
+
+  function handleAppDragOver(event) {
+    if (!dragEventHasFiles(event)) {
+      return;
+    }
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'copy';
+  }
+
+  function handleAppDragLeave(event) {
+    if (!dragEventHasFiles(event)) {
+      return;
+    }
+    event.preventDefault();
+    setAppDragDepth((value) => Math.max(0, value - 1));
+  }
+
+  function handleAppDrop(event) {
+    if (!dragEventHasFiles(event)) {
+      return;
+    }
+    event.preventDefault();
+    clearAppDropState();
+    handleUploadFiles(filesFromDropEvent(event));
+  }
+
   async function handleUploadFiles(files) {
+    const uploadFiles = Array.from(files || []);
+    if (!uploadFiles.length) {
+      return;
+    }
+
+    uploadBatchCountRef.current += 1;
     setUploading(true);
     try {
-      for (const file of files) {
+      for (const file of uploadFiles) {
         const formData = new FormData();
         formData.append('file', file);
         const result = await apiFetch('/api/uploads', {
@@ -7220,7 +7659,10 @@ export default function App() {
         }
       ]);
     } finally {
-      setUploading(false);
+      uploadBatchCountRef.current = Math.max(0, uploadBatchCountRef.current - 1);
+      if (uploadBatchCountRef.current === 0) {
+        setUploading(false);
+      }
     }
   }
 
@@ -7281,6 +7723,9 @@ export default function App() {
           ? { ...message, sessionId: realSessionId }
           : message
       )
+    );
+    setComposerModesBySession((current) =>
+      migrateComposerMode(current, [previousSessionId, optimisticSessionId], realSessionId)
     );
     if (turn.status === 'running' || turn.status === 'queued') {
       markRun({ turnId: turn.turnId, sessionId: realSessionId, previousSessionId: previousSessionId || optimisticSessionId });
@@ -7627,6 +8072,35 @@ export default function App() {
     await loadQueueDrafts(session);
   }
 
+  async function submitUserInput(message, answers) {
+    const body = {
+      projectId: selectedProjectRef.current?.id || selectedProject?.id || null,
+      sessionId: message.threadId || message.sessionId,
+      threadId: message.threadId || message.sessionId,
+      turnId: message.turnId,
+      itemId: message.itemId,
+      answers
+    };
+    if (message.conversationId) {
+      body.conversationId = message.conversationId;
+    }
+    await apiFetch('/api/chat/user-input/respond', {
+      method: 'POST',
+      body
+    });
+    const key = userInputKey(message);
+    updatePendingUserInputs((current) => {
+      if (!current[key]) {
+        return current;
+      }
+      return {
+        ...current,
+        [key]: { ...current[key], status: 'answered', error: '' }
+      };
+    });
+    setMessages((current) => markUserInputMessageResolved(current, message));
+  }
+
   async function submitCodexMessage({
     message,
     attachmentsForTurn = [],
@@ -7652,6 +8126,10 @@ export default function App() {
     if (!sessionForTurn) {
       sessionForTurn = createDraftSession(project);
       setSelectedSession(sessionForTurn);
+      setComposerModesBySession((current) => ({
+        ...current,
+        [sessionForTurn.id]: normalizeComposerMode(pendingComposerMode)
+      }));
       setExpandedProjectIds((current) => ({ ...current, [project.id]: true }));
       setSessionsByProject((current) => upsertSessionInProject(current, project.id, sessionForTurn));
     }
@@ -7664,6 +8142,15 @@ export default function App() {
       ? titleFromFirstMessage(displayMessage)
       : null;
     const optimisticContent = contentWithAttachmentPreviews(displayMessage, selectedAttachments);
+    const modelForTurn = selectedModel || status.model;
+    const reasoningForTurn = selectedReasoningEffort || status.reasoningEffort || DEFAULT_REASONING_EFFORT;
+    const serviceTierForTurn = serviceTierForModelSpeed(selectedModelSpeed);
+    const collaborationMode = buildClientCollaborationMode({
+      composerMode: selectedComposerMode,
+      sendMode,
+      model: modelForTurn,
+      reasoningEffort: reasoningForTurn
+    });
 
     if (clearComposer) {
       setInput('');
@@ -7721,8 +8208,10 @@ export default function App() {
           clientTurnId: turnId,
           message: displayMessage,
           permissionMode,
-          model: selectedModel || status.model,
-          reasoningEffort: selectedReasoningEffort || status.reasoningEffort || DEFAULT_REASONING_EFFORT,
+          model: modelForTurn,
+          reasoningEffort: reasoningForTurn,
+          serviceTier: serviceTierForTurn,
+          collaborationMode,
           selectedSkills: selectedSkillsForTurn(),
           attachments: selectedAttachments,
           fileMentions: selectedFileMentions,
@@ -7818,7 +8307,7 @@ export default function App() {
         attachmentsForTurn: attachments,
         fileMentionsForTurn: fileMentions,
         clearComposer: true,
-        sendMode: mode === 'guide' ? 'interrupt' : mode
+        sendMode: mode
       });
       await loadQueueDrafts(selectedSessionRef.current);
     } catch {
@@ -7932,7 +8421,23 @@ export default function App() {
     }
   }
 
-  const shellClass = useMemo(() => (drawerOpen ? 'app-shell drawer-active' : 'app-shell'), [drawerOpen]);
+  function handleShellMenu() {
+    if (window.matchMedia?.('(min-width: 1024px)').matches) {
+      setDesktopDrawerCollapsed((value) => !value);
+      return;
+    }
+    setDrawerOpen(true);
+  }
+
+  const shellClass = useMemo(
+    () => [
+      'app-shell',
+      drawerOpen ? 'drawer-active' : '',
+      desktopDrawerCollapsed ? 'desktop-drawer-collapsed' : ''
+    ].filter(Boolean).join(' '),
+    [desktopDrawerCollapsed, drawerOpen]
+  );
+  const appDropActive = appDragDepth > 0;
   const visibleContextStatus = useMemo(
     () => {
       if (!selectedSession || isDraftSession(selectedSession)) {
@@ -7959,13 +8464,19 @@ export default function App() {
   }
 
   return (
-    <div className={shellClass}>
+    <div
+      className={shellClass}
+      onDragEnter={handleAppDragEnter}
+      onDragOver={handleAppDragOver}
+      onDragLeave={handleAppDragLeave}
+      onDrop={handleAppDrop}
+    >
       <TopBar
         selectedProject={selectedProject}
         selectedSession={selectedSession}
         connectionState={connectionState}
         desktopBridge={status.desktopBridge}
-        onMenu={() => setDrawerOpen(true)}
+        onMenu={handleShellMenu}
         onOpenDocs={() => setDocsOpen(true)}
         onGitAction={handleGitAction}
         notificationSupported={notificationSupported}
@@ -7992,8 +8503,8 @@ export default function App() {
         onNewConversation={handleNewConversation}
         onSync={handleSync}
         syncing={syncing}
-        theme={theme}
-        setTheme={setTheme}
+        themePreference={themePreference}
+        setThemePreference={setThemePreference}
         canCreateThread={canCreateThreadFromMobile}
         createThreadUnavailableReason={createThreadUnavailableReason}
       />
@@ -8031,6 +8542,7 @@ export default function App() {
         now={activityClockNow}
         onPreviewImage={setPreviewImage}
         onDeleteMessage={handleDeleteMessage}
+        onSubmitUserInput={submitUserInput}
       />
       <Composer
         input={input}
@@ -8043,8 +8555,14 @@ export default function App() {
         models={status.models}
         selectedModel={selectedModel}
         onSelectModel={setSelectedModel}
+        selectedModelSpeed={selectedModelSpeed}
+        onSelectModelSpeed={(value) => setSelectedModelSpeed(normalizeModelSpeed(value))}
         selectedReasoningEffort={selectedReasoningEffort}
         onSelectReasoningEffort={setSelectedReasoningEffort}
+        followUpMode={followUpMode}
+        onSelectFollowUpMode={(value) => setFollowUpMode(normalizeFollowUpMode(value))}
+        composerMode={selectedComposerMode}
+        onSelectComposerMode={setSelectedComposerMode}
         skills={status.skills}
         selectedSkillPaths={selectedSkillPaths}
         onToggleSkill={toggleSelectedSkill}
@@ -8055,6 +8573,7 @@ export default function App() {
         attachments={attachments}
         onUploadFiles={handleUploadFiles}
         onRemoveAttachment={handleRemoveAttachment}
+        dropActive={appDropActive}
         fileMentions={fileMentions}
         onAddFileMention={addFileMention}
         onRemoveFileMention={removeFileMention}

@@ -10,6 +10,8 @@ test-results/
 
 # Local runtime state, uploads, generated files, pairing tokens, logs
 .codexmobile/
+.superpowers/
+.worktrees/
 .playwright-mcp/
 .tmp*
 .tmp*/
