@@ -25,7 +25,7 @@ test('composerSendState starts a desktop turn when idle', () => {
   assert.equal(state.showMenu, false);
 });
 
-test('composerSendState defaults running input to steer when possible', () => {
+test('composerSendState defaults running input to queue follow-up mode', () => {
   const state = composerSendState({
     running: true,
     hasInput: true,
@@ -33,7 +33,23 @@ test('composerSendState defaults running input to steer when possible', () => {
     desktopBridge: { connected: true, mode: 'desktop-proxy' }
   });
 
+  assert.equal(state.mode, 'queue');
+  assert.equal(state.label, '排队');
+  assert.equal(state.showMenu, true);
+  assert.equal(state.canSteer, true);
+});
+
+test('composerSendState can default running input to steer follow-up mode', () => {
+  const state = composerSendState({
+    running: true,
+    hasInput: true,
+    steerable: true,
+    followUpMode: 'steer',
+    desktopBridge: { connected: true, mode: 'desktop-proxy' }
+  });
+
   assert.equal(state.mode, 'steer');
+  assert.equal(state.label, '引导');
   assert.equal(state.showMenu, true);
   assert.equal(state.canSteer, true);
 });

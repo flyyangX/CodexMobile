@@ -45,6 +45,11 @@ export const SLASH_COMMANDS = [
   }
 ];
 
+export const COMPOSER_MODE_OPTIONS = [
+  { value: 'chat', label: 'Chat' },
+  { value: 'plan', label: 'Plan' }
+];
+
 export function detectComposerToken(text, cursor = null) {
   const value = String(text || '');
   const end = Number.isInteger(cursor) ? Math.max(0, Math.min(cursor, value.length)) : value.length;
@@ -76,6 +81,11 @@ export function replaceComposerToken(text, token, replacement) {
 
 export function normalizeComposerMode(mode) {
   return mode === 'plan' ? 'plan' : 'chat';
+}
+
+export function composerModeLabel(mode) {
+  const normalized = normalizeComposerMode(mode);
+  return COMPOSER_MODE_OPTIONS.find((option) => option.value === normalized)?.label || 'Chat';
 }
 
 export function selectedComposerModeForSession(modesBySession, sessionId, pendingMode = 'chat') {

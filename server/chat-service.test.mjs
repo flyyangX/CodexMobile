@@ -260,13 +260,15 @@ test('sendChat sends existing desktop-ipc threads through the desktop follower b
   const result = await service.sendChat({
     projectId: 'project-1',
     sessionId: 'thread-1',
-    message: '从手机发到桌面已有线程'
+    message: '从手机发到桌面已有线程',
+    serviceTier: 'fast'
   });
 
   assert.equal(result.delivery, 'started');
   assert.equal(result.sessionId, 'thread-1');
   assert.equal(result.turnId, 'desktop-turn-1');
   assert.equal(started.conversationId, 'thread-1');
+  assert.equal(started.params.serviceTier, 'fast');
   assert.equal(started.params.input[0].type, 'text');
   assert.equal(started.params.input[0].text, '从手机发到桌面已有线程');
 });
@@ -432,7 +434,7 @@ test('sendChat registers new projectless background threads for mobile and deskt
 
   assert.equal(result.accepted, true);
   assert.equal(runPayload.draftSessionId, 'draft-projectless-1');
-  assert.match(runPayload.projectPath, /\/tmp\/codex-projectless\/\d{4}-\d{2}-\d{2}\/mobile-chat-/);
+  assert.match(runPayload.projectPath.replaceAll('\\', '/'), /\/tmp\/codex-projectless\/\d{4}-\d{2}-\d{2}\/mobile-chat-/);
   assert.deepEqual(desktopRegistration, {
     threadId: 'projectless-thread-1',
     workspaceRoot: '/tmp/codex-projectless'
@@ -464,13 +466,15 @@ test('sendChat starts a headless local Codex turn when desktop bridge is in head
     projectId: 'project-1',
     draftSessionId: 'draft-project-1-1',
     clientTurnId: 'client-turn',
-    message: '桌面端没开也跑一下'
+    message: '桌面端没开也跑一下',
+    serviceTier: 'fast'
   });
 
   assert.equal(result.accepted, true);
   assert.equal(result.delivery, 'started');
   assert.equal(result.desktopBridge.mode, 'headless-local');
   assert.equal(runPayload.draftSessionId, 'draft-project-1-1');
+  assert.equal(runPayload.serviceTier, 'fast');
   assert.match(runPayload.message, /桌面端没开也跑一下/);
   assert.equal(broadcasts.some((payload) => payload.type === 'user-message'), true);
 });

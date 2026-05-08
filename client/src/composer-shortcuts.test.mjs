@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  COMPOSER_MODE_OPTIONS,
   SLASH_COMMANDS,
+  composerModeLabel,
   detectComposerToken,
   filteredSlashCommands,
   migrateComposerMode,
@@ -52,6 +54,15 @@ test('plan slash command is a mode switch', () => {
   assert.equal(command.mode, 'plan');
   assert.equal(filteredSlashCommands('plan')[0].id, 'plan');
   assert.equal(filteredSlashCommands('计划')[0].id, 'plan');
+});
+
+test('composer mode options support the menu labels', () => {
+  assert.deepEqual(COMPOSER_MODE_OPTIONS.map((option) => [option.value, option.label]), [
+    ['chat', 'Chat'],
+    ['plan', 'Plan']
+  ]);
+  assert.equal(composerModeLabel('plan'), 'Plan');
+  assert.equal(composerModeLabel('invalid'), 'Chat');
 });
 
 test('selectedComposerModeForSession preserves pending mode without a session', () => {

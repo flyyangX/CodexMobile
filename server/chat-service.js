@@ -15,6 +15,7 @@ import {
 } from './codex-config.js';
 import { registerMobileSession as registerMobileSessionInIndex } from './mobile-session-index.js';
 import { normalizeCollaborationMode } from '../shared/collaboration-mode.js';
+import { normalizeServiceTier } from '../shared/service-tier.js';
 import { PendingUserInputRequests } from './user-input-requests.js';
 
 const MAX_RECENT_TURNS = 80;
@@ -401,6 +402,7 @@ export function createChatService({
       attachments: Array.isArray(job.attachments) ? job.attachments : [],
       selectedSkills: Array.isArray(job.selectedSkills) ? job.selectedSkills : [],
       fileMentions: Array.isArray(job.fileMentions) ? job.fileMentions : [],
+      serviceTier: job.serviceTier || null,
       createdAt: job.createdAt || new Date().toISOString(),
       sessionId: job.selectedSessionId || null,
       draftSessionId: job.draftSessionId || null
@@ -459,6 +461,7 @@ export function createChatService({
       attachments: draft.attachments,
       selectedSkills: draft.selectedSkills,
       fileMentions: draft.fileMentions,
+      serviceTier: draft.serviceTier,
       sendMode: 'steer'
     });
   }
@@ -556,6 +559,7 @@ export function createChatService({
         selectedSkills: job.selectedSkills,
         model: job.model,
         reasoningEffort: job.reasoningEffort,
+        serviceTier: job.serviceTier,
         collaborationMode: job.collaborationMode,
         permissionMode: job.permissionMode,
         onUserInputRequest: handleUserInputRequest,
@@ -674,6 +678,7 @@ export function createChatService({
     selectedSkills,
     model,
     reasoningEffort,
+    serviceTier,
     collaborationMode,
     permissionMode
   }) {
@@ -700,6 +705,9 @@ export function createChatService({
       effort: reasoningEffort || null,
       attachments: []
     };
+    if (serviceTier) {
+      baseTurnStartParams.serviceTier = serviceTier;
+    }
     if (collaborationMode !== null) {
       baseTurnStartParams.collaborationMode = collaborationMode;
     }
@@ -813,6 +821,7 @@ export function createChatService({
     const config = getCacheSnapshot().config || {};
     const selectedModel = session?.model || body.model || config.model || 'gpt-5.5';
     const selectedReasoningEffort = body.reasoningEffort || defaultReasoningEffort;
+    const selectedServiceTier = normalizeServiceTier(body.serviceTier);
     const collaborationMode = sendMode === 'steer'
       ? null
       : normalizeCollaborationMode(body.collaborationMode, {
@@ -854,6 +863,7 @@ export function createChatService({
         fileMentions,
         model: selectedModel,
         reasoningEffort: selectedReasoningEffort,
+        serviceTier: selectedServiceTier,
         collaborationMode,
         permissionMode: body.permissionMode || 'bypassPermissions'
       }, { forceQueued: true, autoStart: false });
@@ -886,6 +896,7 @@ export function createChatService({
             selectedSkills,
             model: selectedModel,
             reasoningEffort: selectedReasoningEffort,
+            serviceTier: selectedServiceTier,
             collaborationMode,
             permissionMode: body.permissionMode || 'bypassPermissions'
           });
@@ -1091,6 +1102,7 @@ export function createChatService({
       fileMentions,
       model: selectedModel,
       reasoningEffort: selectedReasoningEffort,
+      serviceTier: selectedServiceTier,
       collaborationMode,
       permissionMode: body.permissionMode || 'bypassPermissions'
     });
