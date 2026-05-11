@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import os from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
 import { createChatService } from './chat-service.js';
 
@@ -163,6 +165,50 @@ test('sendChat sends existing desktop-ipc threads through the desktop follower b
   assert.equal(started.conversationId, 'thread-1');
   assert.equal(started.params.input[0].type, 'text');
   assert.equal(started.params.input[0].text, '从手机发到桌面已有线程');
+});
+
+test('sendChat sends explicit desktop sandbox policy when switching permission modes', async () => {
+  const started = [];
+  const { service } = makeChatService({
+    dangerFullAccessEnabled: true,
+    getDesktopBridgeStatus: async () => ({
+      strict: true,
+      connected: true,
+      mode: 'desktop-ipc',
+      reason: null,
+      capabilities: { sendToOpenDesktopThread: true, createThread: false }
+    }),
+    startDesktopFollowerTurn: async (conversationId, params) => {
+      started.push({ conversationId, params });
+      return { result: { turn: { id: `desktop-turn-${started.length}` } } };
+    }
+  });
+
+  await service.sendChat({
+    projectId: 'project-1',
+    sessionId: 'thread-1',
+    message: '完整模式',
+    permissionMode: 'bypassPermissions'
+  });
+  await service.sendChat({
+    projectId: 'project-1',
+    sessionId: 'thread-1',
+    message: '切回自动接受编辑',
+    permissionMode: 'acceptEdits'
+  });
+
+  assert.deepEqual(started[0].params.sandboxPolicy, { type: 'dangerFullAccess' });
+  assert.equal(started[0].params.approvalPolicy, 'never');
+  assert.equal(started[0].params.approvalsReviewer, 'user');
+  assert.equal(started[1].params.approvalPolicy, 'never');
+  assert.equal(started[1].params.approvalsReviewer, 'user');
+  assert.deepEqual(started[1].params.sandboxPolicy, {
+    type: 'workspaceWrite',
+    writableRoots: ['/tmp/project'],
+    networkAccess: true,
+    excludeTmpdirEnvVar: false,
+    excludeSlashTmp: false
+  });
 });
 
 test('sendChat starts server-side desktop IPC monitoring after desktop handoff', async () => {
@@ -447,9 +493,16 @@ test('sendChat clears desktop collaboration mode for normal follow-up turns', as
   assert.equal(result.delivery, 'started');
   assert.deepEqual(collaborationUpdate, {
     conversationId: 'thread-1',
-    collaborationMode: null
+    collaborationMode: {
+      mode: 'default',
+      settings: {
+        model: 'gpt-5.5',
+        reasoning_effort: 'xhigh',
+        developer_instructions: null
+      }
+    }
   });
-  assert.equal(started.params.collaborationMode, null);
+  assert.deepEqual(started.params.collaborationMode, collaborationUpdate.collaborationMode);
 });
 
 test('sendChat falls back to headless local when an existing desktop-ipc thread has no owner', async () => {
@@ -692,6 +745,8 @@ test('sendChat reuses a background-created thread alias for later desktop-ipc se
 });
 
 test('sendChat registers new projectless background threads for mobile and desktop lists', async () => {
+  const projectlessRoot = path.join(os.tmpdir(), 'codex-projectless');
+  const lunchPath = path.join(os.tmpdir(), 'lunch.png');
   let runPayload = null;
   let desktopRegistration = null;
   let mobileRegistration = null;
@@ -699,7 +754,7 @@ test('sendChat registers new projectless background threads for mobile and deskt
     getProject: () => ({
       id: '__codexmobile_projectless__',
       name: '普通对话',
-      path: '/tmp/codex-projectless',
+      path: projectlessRoot,
       projectless: true
     }),
     getDesktopBridgeStatus: async () => ({
@@ -745,23 +800,32 @@ test('sendChat registers new projectless background threads for mobile and deskt
     clientTurnId: 'client-turn',
     message: '你好呀',
     attachments: [
-      { id: 'img-1', name: '午餐.png', path: '/tmp/lunch.png', mimeType: 'image/png', kind: 'image' }
+      { id: 'img-1', name: '午餐.png', path: lunchPath, mimeType: 'image/png', kind: 'image' }
     ]
   });
   await flushQueuedWork();
 
   assert.equal(result.accepted, true);
   assert.equal(runPayload.draftSessionId, 'draft-projectless-1');
-  assert.match(runPayload.message, /图片: 午餐\.png \(\/tmp\/lunch\.png\)/);
-  assert.match(runPayload.projectPath, /\/tmp\/codex-projectless\/\d{4}-\d{2}-\d{2}\/mobile-chat-/);
+  assert.equal(runPayload.message, '你好呀');
+  assert.deepEqual(runPayload.attachments, [{
+    id: 'img-1',
+    name: '午餐.png',
+    size: 0,
+    mimeType: 'image/png',
+    path: lunchPath,
+    kind: 'image'
+  }]);
+  assert.match(path.relative(projectlessRoot, runPayload.projectPath).replace(/\\/g, '/'), /^\d{4}-\d{2}-\d{2}\/mobile-chat-/);
   assert.deepEqual(desktopRegistration, {
     threadId: 'projectless-thread-1',
-    workspaceRoot: '/tmp/codex-projectless'
+    workspaceRoot: projectlessRoot
   });
   assert.equal(mobileRegistration.id, 'projectless-thread-1');
   assert.equal(mobileRegistration.projectless, true);
   assert.equal(mobileRegistration.summary, '你好呀');
-  assert.match(mobileRegistration.messages[0].content, /!\[午餐\.png\]\(\/tmp\/lunch\.png\)/);
+  assert.match(mobileRegistration.messages[0].content, /!\[午餐\.png\]\(/);
+  assert.match(mobileRegistration.messages[0].content, /lunch\.png/);
 });
 
 test('sendChat remembers a started background thread path before broadcasting it', async () => {

@@ -7,6 +7,8 @@ import {
 } from './chat-request-prep.js';
 
 test('prepareChatRequest normalizes skills, plan mode, attachments, and file mentions', () => {
+  const imagePath = path.resolve('/tmp/screen shot.png');
+  const notesPath = path.resolve('/tmp/notes.md');
   const prepared = prepareChatRequest({
     projectId: 'project-1',
     sessionId: 'thread-1',
@@ -14,8 +16,8 @@ test('prepareChatRequest normalizes skills, plan mode, attachments, and file men
     sendMode: 'queue',
     message: '看这里',
     attachments: [
-      { id: 'img-1', name: '截图.png', path: '/tmp/screen shot.png', mimeType: 'image/png', kind: 'image' },
-      { id: 'file-1', name: 'notes.md', path: '/tmp/notes.md', mimeType: 'text/markdown', kind: 'file' }
+      { id: 'img-1', name: '截图.png', path: imagePath, mimeType: 'image/png', kind: 'image' },
+      { id: 'file-1', name: 'notes.md', path: notesPath, mimeType: 'text/markdown', kind: 'file' }
     ],
     fileMentions: [
       { name: 'App.jsx', path: '/repo/client/src/App.jsx' },
@@ -66,10 +68,11 @@ test('prepareChatRequest normalizes skills, plan mode, attachments, and file men
       developer_instructions: '只先规划'
     }
   });
-  assert.match(prepared.visibleMessage, /!\[截图\.png\]\(<\/tmp\/screen shot\.png>\)/);
+  assert.match(prepared.visibleMessage, /!\[截图\.png\]\(/);
+  assert.match(prepared.visibleMessage, /screen shot\.png/);
   assert.match(prepared.codexMessage, /附件路径:/);
-  assert.match(prepared.codexMessage, /截图\.png \(\/tmp\/screen shot\.png\)/);
-  assert.match(prepared.codexMessage, /notes\.md \(\/tmp\/notes\.md\)/);
+  assert.doesNotMatch(prepared.codexMessage, /截图\.png/);
+  assert.ok(prepared.codexMessage.includes(`notes.md (${notesPath})`));
   assert.match(prepared.codexMessage, /引用文件路径:/);
   assert.match(prepared.codexMessage, /App\.jsx \(\/repo\/client\/src\/App\.jsx\)/);
   assert.doesNotMatch(prepared.codexMessage, /App duplicate/);
@@ -145,8 +148,9 @@ test('prepareChatRequest rejects empty text without attachments', () => {
 
 test('projectlessThreadWorkingDirectory creates dated slug directories', async () => {
   const mkdirCalls = [];
+  const projectlessRoot = path.resolve('/tmp/codex-projectless');
   const cwd = await projectlessThreadWorkingDirectory(
-    { path: '/tmp/codex-projectless' },
+    { path: projectlessRoot },
     'Hello world!',
     {
       date: new Date('2026-05-08T03:04:05.000Z'),
@@ -155,6 +159,6 @@ test('projectlessThreadWorkingDirectory creates dated slug directories', async (
     }
   );
 
-  assert.equal(cwd, path.join('/tmp/codex-projectless', '2026-05-08', 'hello-world-21i3v9'));
+  assert.equal(cwd, path.join(projectlessRoot, '2026-05-08', 'hello-world-21i3v9'));
   assert.deepEqual(mkdirCalls, [{ dir: cwd, options: { recursive: true } }]);
 });

@@ -25,6 +25,7 @@ export function ActivityMessage({ message, now = Date.now(), onImplementPlan }) 
   const visibleSteps = activities.filter((activity) => isVisibleActivityStep(activity, message.status));
   const { timeRange, timeline, fileSummary } = projectActivityView(visibleSteps, { running });
   const hasProcess = timeline.length > 0 || Boolean(fileSummary);
+  const failureDetail = failed ? String(message.detail || '').trim() : '';
   const [open, setOpen] = useState(() => pendingPlanImplementation || activityCardShouldOpen({ running, hasProcess }));
   const startedAt = message.startedAt || timeRange.startedAt || message.timestamp;
   const endedAt = running ? now : message.completedAt || timeRange.endedAt || message.timestamp || now;
@@ -54,6 +55,9 @@ export function ActivityMessage({ message, now = Date.now(), onImplementPlan }) 
             fileSummary={fileSummary}
             onImplementPlan={onImplementPlan}
           />
+        ) : null}
+        {failureDetail && !hasProcess ? (
+          <div className="activity-failure-detail">{failureDetail}</div>
         ) : null}
       </div>
     </div>

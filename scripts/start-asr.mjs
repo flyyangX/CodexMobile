@@ -1,6 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 const root = path.resolve(import.meta.dirname, '..');
 const serviceDir = path.join(root, 'asr-service');
@@ -9,6 +10,7 @@ const containerName = process.env.CODEXMOBILE_ASR_CONTAINER || 'codexmobile-sens
 const legacyContainerName = process.env.CODEXMOBILE_ASR_LEGACY_CONTAINER || 'codexmobile-asr';
 const image = process.env.CODEXMOBILE_ASR_IMAGE || 'codexmobile-sensevoice-asr:latest';
 const port = process.env.CODEXMOBILE_ASR_PORT || '8000';
+const host = process.env.CODEXMOBILE_ASR_HOST || '127.0.0.1';
 const model = process.env.CODEXMOBILE_TRANSCRIBE_MODEL || 'iic/SenseVoiceSmall';
 const device = process.env.CODEXMOBILE_ASR_DEVICE || 'cpu';
 const healthTimeoutMs = Number(process.env.CODEXMOBILE_ASR_HEALTH_TIMEOUT_MS || 60000);
@@ -16,7 +18,9 @@ const buildTimeoutMs = Number(process.env.CODEXMOBILE_ASR_BUILD_TIMEOUT_MS || 20
 const rebuild = ['1', 'true', 'yes', 'on'].includes(String(process.env.CODEXMOBILE_ASR_REBUILD || '').toLowerCase());
 const recreate = ['1', 'true', 'yes', 'on'].includes(String(process.env.CODEXMOBILE_ASR_RECREATE || '').toLowerCase());
 
-fs.mkdirSync(cacheDir, { recursive: true });
+export function buildPublishArg({ host = '127.0.0.1', port = '8000' } = {}) {
+  return `${host}:${port}:8000`;
+}
 
 function run(command, args, options = {}) {
   return spawnSync(command, args, {
@@ -131,7 +135,7 @@ function startContainer() {
     '--restart',
     'unless-stopped',
     '--publish',
-    `${port}:8000`,
+    buildPublishArg({ host, port }),
     '--volume',
     `${cacheDir.replace(/\\/g, '/')}:/models`,
     '--env',
@@ -186,20 +190,27 @@ async function waitForHealth() {
   return { ready: false, health: lastHealth };
 }
 
-requireDocker();
-buildImageIfNeeded();
-startContainer();
+export async function main() {
+  fs.mkdirSync(cacheDir, { recursive: true });
+  requireDocker();
+  buildImageIfNeeded();
+  startContainer();
 
-console.log(`SenseVoice ASR container started: ${containerName}`);
-console.log(`Endpoint: http://127.0.0.1:${port}/v1/audio/transcriptions`);
-console.log(`Model: ${model}`);
-console.log(`Cache: ${cacheDir}`);
+  console.log(`SenseVoice ASR container started: ${containerName}`);
+  console.log(`Endpoint: http://127.0.0.1:${port}/v1/audio/transcriptions`);
+  console.log(`Model: ${model}`);
+  console.log(`Cache: ${cacheDir}`);
 
-const health = await waitForHealth();
-if (health.ready) {
-  console.log('SenseVoice ASR is ready.');
-} else {
-  console.log('SenseVoice ASR is starting or downloading the model. This can take several minutes the first time.');
-  console.log(`Check later: curl http://127.0.0.1:${port}/health`);
-  console.log(`Logs: docker logs -f ${containerName}`);
+  const health = await waitForHealth();
+  if (health.ready) {
+    console.log('SenseVoice ASR is ready.');
+  } else {
+    console.log('SenseVoice ASR is starting or downloading the model. This can take several minutes the first time.');
+    console.log(`Check later: curl http://127.0.0.1:${port}/health`);
+    console.log(`Logs: docker logs -f ${containerName}`);
+  }
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  await main();
 }

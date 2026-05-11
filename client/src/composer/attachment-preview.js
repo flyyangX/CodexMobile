@@ -3,12 +3,10 @@ export function isImageAttachment(attachment = {}) {
   return attachment.kind === 'image' || mimeType.startsWith('image/');
 }
 
-export function attachmentPreviewUrl(attachment = {}, token = '') {
+export function attachmentPreviewUrl(attachment = {}) {
   const imagePath = String(attachment.path || '').trim();
   if (!imagePath) {
     return '';
   }
-  const tokenValue = String(token || '').trim();
-  const tokenParam = tokenValue ? `&token=${encodeURIComponent(tokenValue)}` : '';
-  return `/api/local-image?path=${encodeURIComponent(imagePath)}${tokenParam}`;
+  return `/api/local-image?path=${encodeURIComponent(imagePath)}`;
 }

@@ -6,6 +6,7 @@ import { createCodexAppServerClient, defaultServerRequestResult } from './codex-
 import { buildCodexTurnInput, imageMarkdownFromCodexImageGeneration } from './codex-native-images.js';
 import { buildCodexLarkCliContext } from './lark-cli.js';
 import { detectFeishuSkillKeys } from './feishu-skills.js';
+import { codexSandboxForPermissionMode } from './permission-policy.js';
 
 const activeRuns = new Map();
 const NON_ASCII_PATH_PATTERN = /[^\u0000-\u007F]/;
@@ -81,13 +82,9 @@ async function ensureAsciiWorkingDirectory(projectPath) {
 }
 
 function mapPermissionMode(permissionMode) {
-  if (permissionMode === 'bypassPermissions') {
-    return { sandboxMode: 'danger-full-access', approvalPolicy: 'never' };
-  }
-  if (permissionMode === 'acceptEdits') {
-    return { sandboxMode: 'workspace-write', approvalPolicy: 'never' };
-  }
-  return { sandboxMode: 'workspace-write', approvalPolicy: 'never' };
+  return codexSandboxForPermissionMode(permissionMode, {
+    dangerFullAccessEnabled: process.env.CODEXMOBILE_ENABLE_DANGER_FULL_ACCESS === '1'
+  });
 }
 
 function normalizeReasoningEffort(reasoningEffort) {

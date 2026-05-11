@@ -55,6 +55,17 @@
   backdrop-filter: blur(14px) saturate(1.08);
 }
 
+.activity-failure-detail {
+  max-width: min(100%, 736px);
+  margin-top: 6px;
+  padding: 0 10px 4px;
+  color: var(--danger);
+  font-size: 12px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
 .activity-text {
   margin: 0;
   color: var(--text);

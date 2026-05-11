@@ -188,6 +188,14 @@
   margin-bottom: 20px;
 }
 
+.pairing-loading-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #fff;
+  animation: pulse 900ms ease-in-out infinite;
+}
+
 .pairing-screen h1 {
   margin: 0;
   font-size: 30px;
@@ -235,6 +243,24 @@
 .pairing-note {
   margin-bottom: 12px !important;
   font-size: 14px;
+}
+
+.pairing-request-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  height: 42px;
+  margin-bottom: 12px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  color: var(--text);
+  background: var(--panel);
+}
+
+.pairing-request-button:disabled {
+  opacity: 0.48;
 }
 
 .pairing-form {
@@ -291,6 +317,18 @@
 
 .spin {
   animation: spin 800ms linear infinite;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 0.35;
+    transform: scale(0.82);
+  }
+
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 
 @keyframes spin {

@@ -1,5 +1,12 @@
 import { readBody, sendJson } from './http-utils.js';
 
+function errorPayload(error, fallback) {
+  return {
+    error: error.message || fallback,
+    ...(error.code ? { code: error.code } : {})
+  };
+}
+
 export function createChatRouteHandler({
   chatService,
   remoteAddress = () => ''
@@ -51,7 +58,7 @@ export function createChatRouteHandler({
         const result = await chatService.steerQueuedDraft(body);
         sendJson(res, result ? 202 : 404, result || { error: 'Queued draft not found' });
       } catch (error) {
-        sendJson(res, error.statusCode || 500, { error: error.message || 'Failed to steer queued draft' });
+        sendJson(res, error.statusCode || 500, errorPayload(error, 'Failed to steer queued draft'));
       }
       return true;
     }
@@ -62,7 +69,7 @@ export function createChatRouteHandler({
         const result = await chatService.sendChat(body, { remoteAddress: remoteAddress(req) });
         sendJson(res, 202, result);
       } catch (error) {
-        sendJson(res, error.statusCode || 500, { error: error.message || 'Failed to send chat' });
+        sendJson(res, error.statusCode || 500, errorPayload(error, 'Failed to send chat'));
       }
       return true;
     }
@@ -73,7 +80,7 @@ export function createChatRouteHandler({
         const aborted = await chatService.abortChat(body, { remoteAddress: remoteAddress(req) });
         sendJson(res, aborted ? 200 : 404, { aborted });
       } catch (error) {
-        sendJson(res, error.statusCode || 500, { error: error.message || 'Failed to abort chat' });
+        sendJson(res, error.statusCode || 500, errorPayload(error, 'Failed to abort chat'));
       }
       return true;
     }

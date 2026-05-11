@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { sendJson, sendStaticContent, staticCacheControl } from './http-utils.js';
+import { isPathInsideRoot } from './upload-service.js';
 
 export const DEFAULT_MIME_TYPES = new Map([
   ['.html', 'text/html; charset=utf-8'],
@@ -143,7 +144,8 @@ function backupFileName(filePath) {
 }
 
 export async function sendLocalImage(req, res, url, {
-  mimeTypes = DEFAULT_MIME_TYPES
+  mimeTypes = DEFAULT_MIME_TYPES,
+  allowedRoots = []
 } = {}) {
   const requestedPath = resolveLocalImagePath(url.searchParams.get('path'));
   const decodedPath = /%[0-9a-f]{2}/i.test(requestedPath) ? resolveLocalImagePath(safeDecodeLocalPath(requestedPath)) : '';
@@ -158,6 +160,9 @@ export async function sendLocalImage(req, res, url, {
       continue;
     }
     const filePath = path.resolve(candidate);
+    if (Array.isArray(allowedRoots) && allowedRoots.length && !allowedRoots.some((root) => isPathInsideRoot(filePath, root))) {
+      continue;
+    }
     const ext = path.extname(filePath).toLowerCase();
     const contentType = mimeTypes.get(ext) || '';
     if (!contentType.startsWith('image/')) {
@@ -293,7 +298,9 @@ export async function serveFileFromRoot(req, res, rootDir, requestedPath, cacheC
 export function createStaticService({
   clientDist,
   generatedRoot,
+  desktopImageRoot = '',
   httpsRootCaPath,
+  uploadRoot = '',
   mimeTypes = DEFAULT_MIME_TYPES
 }) {
   async function serveStatic(req, res, url) {
@@ -367,7 +374,10 @@ export function createStaticService({
   }
 
   async function sendLocalImageFromRequest(req, res, url) {
-    await sendLocalImage(req, res, url, { mimeTypes });
+    await sendLocalImage(req, res, url, {
+      mimeTypes,
+      allowedRoots: [generatedRoot, uploadRoot, desktopImageRoot].filter(Boolean)
+    });
   }
 
   async function sendLocalFileFromRequest(req, res, url) {

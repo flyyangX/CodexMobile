@@ -1,7 +1,8 @@
-import { Archive, BarChart3, ChevronDown, ChevronLeft, Folder, Loader2, MessageSquare, MoreHorizontal, Pencil, Plus, RefreshCw, Search, Settings, X } from 'lucide-react';
+import { Archive, BarChart3, ChevronDown, ChevronLeft, Folder, Loader2, LogOut, MessageSquare, Monitor, MoreHorizontal, Pencil, Plus, RefreshCw, Search, Settings, Shield, Trash2, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { apiFetch } from '../api.js';
 import { compactPath, formatTime, sessionRunBadgeState, subAgentSubtitle } from '../app/session-utils.js';
+import { deviceCounts, deviceDisplayName, deviceState, sortDevices } from '../security-devices.js';
 
 function quotaPercent(value) {
   const percent = Number(value);
@@ -72,9 +73,148 @@ function formatRelativeShort(value) {
   return formatTime(value);
 }
 
+function deviceAccessText(device) {
+  const timeText = device?.lastSeenAt
+    ? `最近访问 ${formatTime(device.lastSeenAt)}`
+    : `绑定于 ${formatTime(device?.createdAt) || '未知时间'}`;
+  return `${device?.lastRemoteAddress || '未知地址'} · ${timeText}`;
+}
+
+function SecuritySettings({ onLoggedOut }) {
+  const [devices, setDevices] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [busyId, setBusyId] = useState('');
+  const sortedDevices = sortDevices(devices);
+  const counts = deviceCounts(devices);
+
+  async function loadDevices() {
+    setLoading(true);
+    setError('');
+    try {
+      const result = await apiFetch('/api/devices');
+      setDevices(Array.isArray(result.devices) ? result.devices : []);
+    } catch (err) {
+      setError(err.message || '设备列表读取失败');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadDevices();
+  }, []);
+
+  async function logoutCurrentDevice() {
+    if (busyId) {
+      return;
+    }
+    setBusyId('logout');
+    setError('');
+    try {
+      await apiFetch('/api/logout', { method: 'POST' });
+      onLoggedOut?.();
+    } catch (err) {
+      setError(err.message || '退出失败');
+    } finally {
+      setBusyId('');
+    }
+  }
+
+  async function revokeDevice(device) {
+    if (!device?.id || device.revokedAt || busyId) {
+      return;
+    }
+    setBusyId(device.id);
+    setError('');
+    try {
+      const result = await apiFetch(`/api/devices/${encodeURIComponent(device.id)}/revoke`, { method: 'POST' });
+      if (result.currentRevoked) {
+        onLoggedOut?.();
+        return;
+      }
+      setDevices(Array.isArray(result.devices) ? result.devices : []);
+    } catch (err) {
+      setError(err.message || '撤销设备失败');
+    } finally {
+      setBusyId('');
+    }
+  }
+
+  return (
+    <section className="settings-group settings-security" aria-label="授权设备管理">
+      <div className="drawer-heading">授权设备</div>
+      <div className="settings-security-card">
+        <div className="settings-security-head">
+          <div>
+            <Shield size={17} />
+            <span>已登录设备管理</span>
+          </div>
+          <button type="button" onClick={loadDevices} disabled={loading || Boolean(busyId)}>
+            {loading ? <Loader2 className="spin" size={14} /> : <RefreshCw size={14} />}
+            <span>刷新</span>
+          </button>
+        </div>
+        <div className="settings-security-summary" aria-label="设备数量">
+          <div>
+            <span>有效设备</span>
+            <strong>{counts.active}</strong>
+          </div>
+          <div>
+            <span>撤销记录</span>
+            <strong>{counts.revoked}</strong>
+          </div>
+        </div>
+        <button
+          type="button"
+          className="settings-logout-button"
+          onClick={logoutCurrentDevice}
+          disabled={busyId === 'logout'}
+        >
+          {busyId === 'logout' ? <Loader2 className="spin" size={15} /> : <LogOut size={15} />}
+          <span>退出当前设备</span>
+        </button>
+        {error ? <div className="settings-security-error">{error}</div> : null}
+        <div className="settings-device-list">
+          {loading ? <div className="settings-device-empty">正在读取设备...</div> : null}
+          {!loading && !sortedDevices.length ? <div className="settings-device-empty">暂无授权设备</div> : null}
+          {!loading ? sortedDevices.map((device) => {
+            const state = deviceState(device);
+            const canRevoke = !device.revokedAt;
+            return (
+              <article key={device.id} className={`settings-device-row ${state.className}`}>
+                <div className="settings-device-icon" aria-hidden="true">
+                  <Monitor size={17} />
+                </div>
+                <div className="settings-device-main">
+                  <div>
+                    <strong>{deviceDisplayName(device)}</strong>
+                    <span className={`settings-device-state ${state.className}`}>{state.label}</span>
+                  </div>
+                  <p>{deviceAccessText(device)}</p>
+                  <small>{device.lastUserAgent || device.userAgent || '未记录浏览器信息'}</small>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => revokeDevice(device)}
+                  disabled={!canRevoke || busyId === device.id || Boolean(busyId && busyId !== device.id)}
+                  aria-label={`撤销 ${deviceDisplayName(device)}`}
+                >
+                  {busyId === device.id ? <Loader2 className="spin" size={15} /> : <Trash2 size={15} />}
+                </button>
+              </article>
+            );
+          }) : null}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 export function Drawer({
   open,
   onClose,
+  requestedView = 'main',
   projects,
   selectedProject,
   selectedSession,
@@ -92,7 +232,8 @@ export function Drawer({
   onSync,
   syncing,
   theme,
-  setTheme
+  setTheme,
+  onLoggedOut
 }) {
   const [drawerView, setDrawerView] = useState('main');
   const [subagentExpandedById, setSubagentExpandedById] = useState({});
@@ -118,11 +259,14 @@ export function Drawer({
   const projectChoices = orderedProjects.filter((project) => !project.projectless);
 
   useEffect(() => {
-    if (!open) {
-      setThreadActionMenu(null);
-      setNewConversationOpen(false);
+    if (open) {
+      setDrawerView(requestedView || 'main');
+      return;
     }
-  }, [open]);
+    setDrawerView('main');
+    setThreadActionMenu(null);
+    setNewConversationOpen(false);
+  }, [open, requestedView]);
 
   function startNewConversation(project, event) {
     event?.preventDefault();
@@ -233,6 +377,7 @@ export function Drawer({
                 </div>
               </div>
             </section>
+            <SecuritySettings onLoggedOut={onLoggedOut} />
           </div>
         </aside>
       </>

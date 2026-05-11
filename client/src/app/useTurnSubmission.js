@@ -66,7 +66,8 @@ export function useTurnSubmission({
   markSessionCompleteNotice,
   markTurnCompleted,
   scheduleTurnRefresh,
-  loadQueueDrafts
+  loadQueueDrafts,
+  onPermissionModeRejected = () => {}
 }) {
   function applyTurnSession(turn, optimisticSessionId, projectId, previousSessionId) {
     const realSessionId = realSessionIdFromTurn(turn);
@@ -374,6 +375,9 @@ export function useTurnSubmission({
       };
     } catch (error) {
       clearRun({ turnId, sessionId: optimisticSessionId, previousSessionId: draftSessionId || outgoingSessionId });
+      if (error?.code === 'CODEXMOBILE_DANGER_FULL_ACCESS_DISABLED') {
+        onPermissionModeRejected();
+      }
       if (clearComposer) {
         setAttachments(selectedAttachments);
         setFileMentions(selectedFileMentions);

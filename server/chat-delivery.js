@@ -1,4 +1,5 @@
 import { buildCodexTurnInput } from './codex-native-images.js';
+import { desktopTurnPermissionsForPermissionMode } from './permission-policy.js';
 
 export async function assertDesktopBridgeAvailable(getDesktopBridgeStatus) {
   const bridge = getDesktopBridgeStatus ? await getDesktopBridgeStatus({ force: true }) : null;
@@ -86,6 +87,20 @@ function userMessageMetadataForSendMode(sendMode = 'start') {
     : {};
 }
 
+function desktopCollaborationModeForTurn(collaborationMode, { model = null, reasoningEffort = null } = {}) {
+  if (collaborationMode?.mode) {
+    return collaborationMode;
+  }
+  return {
+    mode: 'default',
+    settings: {
+      model: String(model || '').trim(),
+      reasoning_effort: reasoningEffort || null,
+      developer_instructions: null
+    }
+  };
+}
+
 async function syncDesktopFollowerCollaborationMode({
   selectedSessionId,
   collaborationMode,
@@ -94,7 +109,7 @@ async function syncDesktopFollowerCollaborationMode({
   if (!setDesktopFollowerCollaborationMode) {
     return;
   }
-  await setDesktopFollowerCollaborationMode(selectedSessionId, collaborationMode || null);
+  await setDesktopFollowerCollaborationMode(selectedSessionId, collaborationMode);
 }
 
 export async function sendViaDesktopIpc({
@@ -135,20 +150,29 @@ export async function sendViaDesktopIpc({
   });
   const now = new Date().toISOString();
   const lastSession = getSession(selectedSessionId);
+  const cwd = lastSession?.cwd || project.path || null;
+  const desktopPermissions = desktopTurnPermissionsForPermissionMode(permissionMode, {
+    dangerFullAccessEnabled: true,
+    writableRoots: cwd ? [cwd] : [],
+    networkAccess: true
+  });
+  const desktopCollaborationMode = desktopCollaborationModeForTurn(collaborationMode, {
+    model,
+    reasoningEffort
+  });
   const baseTurnStartParams = {
     input,
-    cwd: lastSession?.cwd || project.path || null,
-    approvalPolicy: 'never',
-    approvalsReviewer: 'user',
-    sandboxPolicy: permissionMode === 'bypassPermissions'
-      ? { type: 'dangerFullAccess' }
-      : { type: 'workspaceWrite', networkAccess: false },
+    cwd,
+    ...desktopPermissions,
     model: model || null,
     effort: reasoningEffort || null,
     serviceTier: serviceTier || null,
-    collaborationMode: collaborationMode || null,
+    collaborationMode: desktopCollaborationMode,
     attachments: []
   };
+  console.info(
+    `[desktop-ipc] start-turn prepare session=${selectedSessionId} mode=${permissionMode || 'default'} approval=${baseTurnStartParams.approvalPolicy || ''} reviewer=${baseTurnStartParams.approvalsReviewer || ''} sandbox=${JSON.stringify(baseTurnStartParams.sandboxPolicy || null)}`
+  );
 
   async function attemptDesktopFollowerTurn() {
     if (sendMode === 'steer') {
@@ -157,7 +181,7 @@ export async function sendViaDesktopIpc({
       }
       await syncDesktopFollowerCollaborationMode({
         selectedSessionId,
-        collaborationMode,
+        collaborationMode: desktopCollaborationMode,
         setDesktopFollowerCollaborationMode
       });
       result = await steerDesktopFollowerTurn(selectedSessionId, {
@@ -165,10 +189,10 @@ export async function sendViaDesktopIpc({
         attachments: [],
         restoreMessage: {
           text: codexMessage,
-          cwd: lastSession?.cwd || project.path || null,
+          cwd,
           context: {
             workspaceRoots: project.path ? [project.path] : [],
-            collaborationMode: collaborationMode || null
+            collaborationMode: desktopCollaborationMode
           },
           responsesapiClientMetadata: null
         }
@@ -182,10 +206,13 @@ export async function sendViaDesktopIpc({
       }
       await syncDesktopFollowerCollaborationMode({
         selectedSessionId,
-        collaborationMode,
+        collaborationMode: desktopCollaborationMode,
         setDesktopFollowerCollaborationMode
       });
       result = await startDesktopFollowerTurn(selectedSessionId, baseTurnStartParams);
+      console.info(
+        `[desktop-ipc] start-turn accepted session=${selectedSessionId} mode=${permissionMode || 'default'} turn=${result?.result?.turn?.id || result?.turn?.id || ''}`
+      );
     }
     return result;
   }
@@ -208,6 +235,9 @@ export async function sendViaDesktopIpc({
       }
     }
   } catch (error) {
+    console.warn(
+      `[desktop-ipc] start-turn failed session=${selectedSessionId} mode=${permissionMode || 'default'} error=${error?.message || error}`
+    );
     if (isDesktopThreadOwnerUnavailable(error)) {
       throw desktopIpcUnavailableError(error?.message || undefined);
     }

@@ -120,7 +120,7 @@ CodexMobile 和 Remodex 这类项目都在解决“移动端使用 Codex”的�
 - 前台 toast：任务完成、任务失败、需要用户输入、Git 进度都会提示。
 - Web Push：在平台和浏览器支持的 HTTPS PWA 环境中，可接收后台完成通知。
 - 连接恢复卡片：断开、重连、需配对、同步中、桌面端不可用时，会给出重试、同步、重新配对、查看状态等入口。
-- 配对使用一次性配对码和设备 token，适合单用户私有网络使用。
+- 配对使用局域网一次性请求、控制台配对码和 HttpOnly 设备 Cookie，适合单用户私有网络使用。
 
 ### 本机工具能力
 
@@ -142,7 +142,7 @@ Mobile browser / PWA
   | 推荐 Tailscale Serve；局域网 HTTP 可用，但部分平台不能触发后台通知
   v
 CodexMobile Node.js bridge
-  |-- Auth: pairing code + trusted device token
+  |-- Auth: LAN pairing request + HttpOnly trusted-device cookie
   |-- Codex data: ~/.codex/config.toml, ~/.codex/sessions, local mobile sessions
   |-- Desktop sync: Codex Desktop IPC read / steer / archive integration
   |-- Chat service: send, queue, steer, interrupt, file mentions, selected skills
@@ -186,7 +186,7 @@ http://127.0.0.1:3321
 http://<电脑的私网 IP>:3321
 ```
 
-第一次进入需要输入服务启动时打印的 6 位配对码。配对成功后，浏览器会保存设备 token，后续不需要每次重新输入。
+第一次进入会先从同一局域网请求一次性配对码，电脑控制台会显示短时有效的配对码。配对成功后，浏览器使用 HttpOnly Cookie 保存设备会话，后续不需要每次重新输入。
 
 ## PWA、HTTPS 和完成通知
 
@@ -229,6 +229,21 @@ $env:HTTPS_ROOT_CA_PATH="C:\path\to\root-ca.cer"
 npm run start:env
 ```
 
+## 公网端口转发安全部署
+
+CodexMobile 可以放在家用/办公路由器后面使用公网端口转发，但必须按下面边界部署：
+
+- 只转发 CodexMobile HTTPS 端口，或只转发可信反向代理的 HTTPS 端口。
+- 不要转发 ASR、CLIProxyAPI、OpenAI-compatible provider、模型服务、Docker 容器端口。
+- 首次绑定手机时，把手机连接到电脑所在的同一 Wi-Fi / 局域网。
+- 未绑定设备打开页面不会自动打印配对码；只有在配对页点击“请求配对码”后，控制台才会显示一次性配对码。
+- 保持 `CODEXMOBILE_ALLOW_REMOTE_PAIRING=0`，外网未绑定设备只能看到绑定说明，不能创建配对请求。
+- 保持 `CODEXMOBILE_ENABLE_DANGER_FULL_ACCESS=0`，公网设备不能打开完全访问。
+- 如果使用反向代理，不要使用布尔型 trust proxy；只配置 `CODEXMOBILE_TRUSTED_PROXIES=<代理 IP 或 CIDR>`，并确保代理清洗外部传入的 `X-Forwarded-*`。
+- 公网模式下 HTTP 监听只用于本机健康检查；对外转发只使用 HTTPS。
+- 不要把 `.codexmobile/state` 放进 OneDrive、Dropbox、网盘同步目录或公开备份。
+- 手机丢失或微信环境不可信时，在侧边栏设置里的“授权设备”撤销对应设备；`/security` 兼容入口会打开同一个设置项。
+
 ## 配置
 
 复制示例配置：
@@ -244,9 +259,9 @@ npm run start:env
 - `PORT`：HTTP 端口，默认 `3321`
 - `HTTPS_PORT`：HTTPS 端口，默认 `3443`
 - `CODEXMOBILE_PUBLIC_URL`：移动设备访问用的公开私网地址
-- `CODEXMOBILE_PAIRING_CODE`：可选固定 6 位配对码；不设置则启动时随机生成
 - `CODEX_HOME`：Codex 配置目录，默认 `~/.codex`
 - `CODEXMOBILE_HOME`：CodexMobile 本地状态目录，默认 `.codexmobile/state`
+- `CODEXMOBILE_PAIRING_REQUEST_COOLDOWN_MS`：同一设备连续申请配对码的冷却时间，默认 `30000`
 - `CODEXMOBILE_PUSH_SUBJECT`：可选 Web Push VAPID subject；默认使用 `CODEXMOBILE_PUBLIC_URL`，再回退到 `mailto:codexmobile@localhost`
 - `CODEXMOBILE_FEISHU_APP_ID` / `CODEXMOBILE_FEISHU_APP_SECRET`：可选飞书应用凭证，用于 `lark-cli` 文档集成
 - `LARK_APP_ID` / `LARK_APP_SECRET`：可选飞书凭证别名，供 `lark-cli` 和 Codex 子进程读取
@@ -300,6 +315,7 @@ npm run build
 主要路由从 `server/index.js` 挂载，具体实现已拆到 `server/*-routes.js`、`server/*-service.js` 等模块：
 
 - `GET /api/status`
+- `POST /api/pair/request`
 - `POST /api/pair`
 - `POST /api/sync`
 - `GET /api/projects`
@@ -336,7 +352,7 @@ npm run build
 2. 电脑启动 CodexMobile。
 3. 日常聊天可使用 Tailscale IP 或局域网 IP。
 4. 如果要 iOS 后台通知，启用 Tailscale Serve 并使用 HTTPS 地址。
-5. 第一次访问时输入配对码。
+5. 第一次访问时点击“请求配对码”，再输入电脑控制台显示的一次性配对码。
 6. 在移动设备浏览器中添加到主屏或保存为 PWA。
 7. 从主屏 PWA 打开 CodexMobile；如果平台支持 Web Push，再点击“开启完成通知”。
 

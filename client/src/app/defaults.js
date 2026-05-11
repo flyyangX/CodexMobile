@@ -49,7 +49,15 @@ export const DEFAULT_STATUS = {
       reason: ''
     }
   },
-  auth: { authenticated: false }
+  auth: { authenticated: false },
+  security: {
+    publicAccess: false,
+    dangerFullAccessEnabled: false,
+    httpsEnabled: false,
+    pairing: {
+      lanOnly: true
+    }
+  }
 };
 
 export const DEFAULT_REASONING_EFFORT = 'xhigh';

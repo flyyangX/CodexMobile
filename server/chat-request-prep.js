@@ -109,9 +109,10 @@ export function prepareChatRequest(body = {}, {
   getSession = () => null,
   config = {},
   defaultReasoningEffort = 'xhigh',
+  uploadRoot = '',
   createTurnId = crypto.randomUUID
 } = {}) {
-  const attachments = normalizeAttachments(body.attachments);
+  const attachments = normalizeAttachments(body.attachments, { uploadRoot });
   const fileMentions = normalizeFileMentions(body.fileMentions);
   const message = String(body.message || '').trim();
   if (!message && !attachments.length) {

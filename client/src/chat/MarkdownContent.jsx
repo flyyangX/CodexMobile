@@ -3,7 +3,6 @@ import { useEffect, useRef, useState } from 'react';
 import ReactMarkdown, { defaultUrlTransform } from 'react-markdown';
 import remarkBreaks from 'remark-breaks';
 import remarkGfm from 'remark-gfm';
-import { getToken } from '../api.js';
 import { isLocalFileSource, isLocalImageSource, localFilePreviewPath } from '../app/session-utils.js';
 import { copyTextToClipboard } from '../utils/clipboard.js';
 import { GeneratedImage } from './ImagePreview.jsx';
@@ -157,7 +156,7 @@ function normalizeInlineHref(value) {
     return '';
   }
   if (isLocalFileSource(raw)) {
-    return localFilePreviewPath(raw, getToken());
+    return localFilePreviewPath(raw);
   }
   if (/^https?:\/\//i.test(raw) || /^mailto:/i.test(raw) || raw.startsWith('/') || raw.startsWith('#')) {
     return raw;

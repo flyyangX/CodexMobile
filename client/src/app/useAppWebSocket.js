@@ -1,4 +1,4 @@
-import { apiFetch, getToken, websocketUrl } from '../api.js';
+import { apiFetch, websocketUrl } from '../api.js';
 import {
   applySessionRenameToProjectSessions
 } from '../session-live-refresh.js';
@@ -60,6 +60,10 @@ export function shouldRefreshCurrentSessionAfterReconnect(session = null) {
   return Boolean(sessionId && !sessionId.startsWith('draft-'));
 }
 
+export function isRevokedWebSocketClose(event = {}) {
+  return Number(event?.code) === 1008 && String(event?.reason || '') === 'revoked';
+}
+
 export function useAppWebSocket({
   useEffect,
   authenticated,
@@ -87,10 +91,11 @@ export function useAppWebSocket({
   setProjects,
   setSelectedProject,
   setExpandedProjectIds,
-  loadSessions
+  loadSessions,
+  onAuthenticationRevoked
 }) {
   useEffect(() => {
-    if (!authenticated || !getToken()) {
+    if (!authenticated) {
       setConnectionState('disconnected');
       return undefined;
     }
@@ -120,8 +125,13 @@ export function useAppWebSocket({
       wsRef.current = ws;
 
       ws.onopen = () => setConnectionState('connecting');
-      ws.onclose = () => {
+      ws.onclose = (event) => {
         setConnectionState('disconnected');
+        if (isRevokedWebSocketClose(event)) {
+          stopped = true;
+          onAuthenticationRevoked?.();
+          return;
+        }
         if (!stopped) {
           reconnectingAfterDrop = true;
           reconnectTimer = window.setTimeout(connect, 1200);

@@ -107,6 +107,28 @@ test('chat route handler routes send and abort through chat service', async () =
   assert.deepEqual(calls.map((call) => call.name), ['send', 'abort']);
 });
 
+test('chat route handler preserves structured send errors', async () => {
+  const handler = createChatRouteHandler({
+    chatService: {
+      async sendChat() {
+        const error = new Error('danger-full-access is disabled on this server');
+        error.statusCode = 403;
+        error.code = 'CODEXMOBILE_DANGER_FULL_ACCESS_DISABLED';
+        throw error;
+      }
+    }
+  });
+
+  const sendReq = createRequest('POST', { projectId: 'project-1', message: 'hi', permissionMode: 'bypassPermissions' });
+  const sendRes = createResponse();
+  assert.equal(await callWithBody(handler, sendReq, sendRes, new URL('http://local/api/chat/send')), true);
+  assert.equal(sendRes.statusCode, 403);
+  assert.deepEqual(JSON.parse(sendRes.body), {
+    error: 'danger-full-access is disabled on this server',
+    code: 'CODEXMOBILE_DANGER_FULL_ACCESS_DISABLED'
+  });
+});
+
 test('file route handler searches project files and preserves project not found response', async () => {
   const handler = createFileRouteHandler({
     getProject(projectId) {

@@ -8,6 +8,22 @@ import * as desktopIpc from './desktop-ipc-client.js';
 
 const { DesktopIpcClient, desktopIpcMethodVersion } = desktopIpc;
 
+async function makeIpcSocketPathForTest() {
+  if (process.platform === 'win32') {
+    const suffix = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    return {
+      socketPath: `\\\\.\\pipe\\codexmobile-ipc-test-${suffix}`,
+      cleanup: async () => {}
+    };
+  }
+
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'codexmobile-ipc-test-'));
+  return {
+    socketPath: path.join(dir, 'ipc.sock'),
+    cleanup: async () => fs.rm(dir, { recursive: true, force: true })
+  };
+}
+
 test('desktop follower IPC methods use the current desktop protocol version', () => {
   assert.equal(desktopIpcMethodVersion('initialize'), 0);
   assert.equal(desktopIpcMethodVersion('thread-archived'), 2);
@@ -45,8 +61,7 @@ function readFrame(socket) {
 }
 
 test('sendBroadcast writes desktop IPC broadcast frames', async () => {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'codexmobile-ipc-test-'));
-  const socketPath = path.join(dir, 'ipc.sock');
+  const { socketPath, cleanup } = await makeIpcSocketPathForTest();
   const server = net.createServer();
   await new Promise((resolve) => server.listen(socketPath, resolve));
 
@@ -83,14 +98,13 @@ test('sendBroadcast writes desktop IPC broadcast frames', async () => {
 
   client.close();
   server.close();
-  await fs.rm(dir, { recursive: true, force: true });
+  await cleanup();
 });
 
 test('broadcastDesktopThreadTitleUpdated writes desktop title update broadcast frames', async () => {
   assert.equal(typeof desktopIpc.broadcastDesktopThreadTitleUpdated, 'function');
 
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'codexmobile-ipc-test-'));
-  const socketPath = path.join(dir, 'ipc.sock');
+  const { socketPath, cleanup } = await makeIpcSocketPathForTest();
   const server = net.createServer();
   await new Promise((resolve) => server.listen(socketPath, resolve));
 
@@ -124,5 +138,5 @@ test('broadcastDesktopThreadTitleUpdated writes desktop title update broadcast f
   });
 
   server.close();
-  await fs.rm(dir, { recursive: true, force: true });
+  await cleanup();
 });

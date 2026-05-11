@@ -16,7 +16,6 @@ const CODEX_USAGE_URL = 'https://chatgpt.com/backend-api/wham/usage';
 const REQUEST_TIMEOUT_MS = Number(process.env.CODEXMOBILE_QUOTA_REQUEST_TIMEOUT_MS || 8_000);
 const MANAGEMENT_TIMEOUT_MS = Number(process.env.CODEXMOBILE_QUOTA_MANAGEMENT_TIMEOUT_MS || 2_500);
 const STALE_QUOTA_TTL_MS = Number(process.env.CODEXMOBILE_QUOTA_STALE_TTL_MS || 30 * 60_000);
-const FIXED_PAIRING_CODE_FILE = path.join(process.cwd(), '.codexmobile', 'state', 'pairing-code.txt');
 let lastSuccessfulQuota = null;
 let cachedQuotaProxyUrl = null;
 let quotaProxyResolved = false;
@@ -128,19 +127,14 @@ async function resolveManagementKey() {
   for (const value of [
     process.env.CODEXMOBILE_CLIPROXY_MANAGEMENT_KEY,
     process.env.CLIPROXYAPI_MANAGEMENT_KEY,
-    process.env.MANAGEMENT_PASSWORD,
-    process.env.CODEXMOBILE_PAIRING_CODE
+    process.env.MANAGEMENT_PASSWORD
   ]) {
     const trimmed = String(value || '').trim();
     if (trimmed) {
       return trimmed;
     }
   }
-  try {
-    return (await fs.readFile(FIXED_PAIRING_CODE_FILE, 'utf8')).trim();
-  } catch {
-    return '';
-  }
+  return '';
 }
 
 function maskAccount(value) {

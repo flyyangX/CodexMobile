@@ -17,6 +17,7 @@ import {
 import { createChatImageHandler } from './chat-image-handler.js';
 import { createChatAutoNamer } from './chat-auto-title.js';
 import { createDesktopTurnMonitor } from './desktop-turn-monitor.js';
+import { normalizePermissionMode } from './permission-policy.js';
 
 export { normalizeSelectedSkills } from './chat-request-prep.js';
 
@@ -48,6 +49,8 @@ export function createChatService({
   registerProjectlessThread = registerProjectlessThreadInCodexState,
   registerMobileSession = registerMobileSessionInIndex,
   rememberLiveSession = () => null,
+  uploadRoot = '',
+  dangerFullAccessEnabled = false,
   desktopOwnerRetryDelays = [250, 700, 1500]
 }) {
   const chatQueue = createChatQueue();
@@ -211,7 +214,8 @@ export function createChatService({
     const prepared = prepareChatRequest(body, {
       getSession,
       config,
-      defaultReasoningEffort
+      defaultReasoningEffort,
+      uploadRoot
     });
     const {
       attachments,
@@ -229,6 +233,7 @@ export function createChatService({
       visibleMessage,
       codexMessage
     } = prepared;
+    const permissionModeForTurn = normalizePermissionMode(body.permissionMode, { dangerFullAccessEnabled });
     let selectedSessionId = prepared.selectedSessionId;
     let conversationSessionId = prepared.conversationSessionId;
     let bridge = await assertDesktopBridgeAvailable(getDesktopBridgeStatus);
@@ -269,7 +274,7 @@ export function createChatService({
         model: modelForTurn,
         reasoningEffort: reasoningEffortForTurn,
         serviceTier: serviceTierForTurn,
-        permissionMode: body.permissionMode || 'bypassPermissions',
+        permissionMode: permissionModeForTurn,
         collaborationMode
       }, { forceQueued: true, autoStart: false });
       return {
@@ -302,7 +307,7 @@ export function createChatService({
             model: modelForTurn,
             reasoningEffort: reasoningEffortForTurn,
             serviceTier: serviceTierForTurn,
-            permissionMode: body.permissionMode || 'bypassPermissions',
+            permissionMode: permissionModeForTurn,
             collaborationMode,
             getSession,
             rememberTurn,
@@ -456,7 +461,7 @@ export function createChatService({
       model: modelForTurn,
       reasoningEffort: reasoningEffortForTurn,
       serviceTier: serviceTierForTurn,
-      permissionMode: body.permissionMode || 'bypassPermissions',
+      permissionMode: permissionModeForTurn,
       collaborationMode
     });
 

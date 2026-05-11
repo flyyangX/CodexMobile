@@ -16,7 +16,7 @@ test('attachmentPreviewUrl points local image paths at the preview endpoint', ()
   );
   assert.equal(
     attachmentPreviewUrl({ path: '/tmp/uploads/a.png' }, 'secret token'),
-    '/api/local-image?path=%2Ftmp%2Fuploads%2Fa.png&token=secret%20token'
+    '/api/local-image?path=%2Ftmp%2Fuploads%2Fa.png'
   );
   assert.equal(attachmentPreviewUrl({ path: '' }), '');
 });

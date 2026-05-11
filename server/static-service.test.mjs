@@ -28,20 +28,31 @@ async function withTempService(fn) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'codexmobile-static-'));
   const clientDist = path.join(root, 'dist');
   const generatedRoot = path.join(root, 'generated');
+  const uploadRoot = path.join(root, 'uploads');
+  const desktopImageRoot = path.join(root, 'desktop-images');
   const certPath = path.join(root, 'tls', 'root.cer');
   await fs.mkdir(clientDist, { recursive: true });
   await fs.mkdir(generatedRoot, { recursive: true });
+  await fs.mkdir(uploadRoot, { recursive: true });
+  await fs.mkdir(desktopImageRoot, { recursive: true });
   await fs.mkdir(path.dirname(certPath), { recursive: true });
   await fs.writeFile(path.join(clientDist, 'index.html'), '<h1>CodexMobile</h1>');
   await fs.writeFile(path.join(clientDist, 'worker.mjs'), 'export default null;');
   await fs.writeFile(path.join(generatedRoot, 'image.png'), Buffer.from([137, 80, 78, 71]));
+  await fs.writeFile(path.join(uploadRoot, 'upload.png'), Buffer.from([137, 80, 78, 71]));
+  await fs.writeFile(path.join(desktopImageRoot, 'desktop.png'), Buffer.from([137, 80, 78, 71]));
   await fs.writeFile(path.join(root, 'report.md'), '# Report');
   await fs.writeFile(path.join(root, 'brief.pdf'), Buffer.from('%PDF-1.7'));
   await fs.writeFile(path.join(root, '甘肃临夏萌宠乐园丨政府汇报项目前置简介.md'), '# 中文文件名');
   await fs.writeFile(path.join(root, 'secret.txt'), 'secret');
   await fs.writeFile(certPath, 'cert');
   try {
-    await fn(createStaticService({ clientDist, generatedRoot, httpsRootCaPath: certPath }), root);
+    await fn(createStaticService({ clientDist, generatedRoot, uploadRoot, desktopImageRoot, httpsRootCaPath: certPath }), {
+      root,
+      generatedRoot,
+      uploadRoot,
+      desktopImageRoot
+    });
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }
@@ -90,7 +101,7 @@ test('serveStatic returns generated files from the generated root', async () => 
 });
 
 test('sendLocalFile serves markdown files inline from absolute paths', async () => {
-  await withTempService(async (service, root) => {
+  await withTempService(async (service, { root }) => {
     const filePath = path.join(root, 'report.md');
     const response = res();
     await service.sendLocalFile(req(), response, new URL(`http://local/api/local-file?path=${encodeURIComponent(filePath)}`));
@@ -102,7 +113,7 @@ test('sendLocalFile serves markdown files inline from absolute paths', async () 
 });
 
 test('sendLocalFile serves pdf files with pdf content type', async () => {
-  await withTempService(async (service, root) => {
+  await withTempService(async (service, { root }) => {
     const filePath = path.join(root, 'brief.pdf');
     const response = res();
     await service.sendLocalFile(req(), response, new URL(`http://local/api/local-file?path=${encodeURIComponent(filePath)}`));
@@ -114,7 +125,7 @@ test('sendLocalFile serves pdf files with pdf content type', async () => {
 });
 
 test('sendLocalFile tolerates Codex style line suffixes on file links', async () => {
-  await withTempService(async (service, root) => {
+  await withTempService(async (service, { root }) => {
     const filePath = `${path.join(root, 'report.md')}:12`;
     const response = res();
     await service.sendLocalFile(req(), response, new URL(`http://local/api/local-file?path=${encodeURIComponent(filePath)}`));
@@ -126,7 +137,7 @@ test('sendLocalFile tolerates Codex style line suffixes on file links', async ()
 });
 
 test('sendLocalFile encodes non-ascii filenames in content-disposition', async () => {
-  await withTempService(async (service, root) => {
+  await withTempService(async (service, { root }) => {
     const filePath = path.join(root, '甘肃临夏萌宠乐园丨政府汇报项目前置简介.md');
     const response = res();
     await service.sendLocalFile(req(), response, new URL(`http://local/api/local-file?path=${encodeURIComponent(filePath)}`));
@@ -139,7 +150,7 @@ test('sendLocalFile encodes non-ascii filenames in content-disposition', async (
 });
 
 test('writeLocalFile saves editable text files with conflict protection and backup', async () => {
-  await withTempService(async (service, root) => {
+  await withTempService(async (service, { root }) => {
     const filePath = path.join(root, 'report.md');
     const initialStat = await fs.stat(filePath);
     const saveResponse = res();
@@ -167,5 +178,42 @@ test('writeLocalFile saves editable text files with conflict protection and back
 
     assert.equal(conflictResponse.statusCode, 409);
     assert.equal(await fs.readFile(filePath, 'utf8'), '# Updated');
+  });
+});
+
+test('sendLocalImage only serves generated, uploaded, or desktop images', async () => {
+  await withTempService(async (service, paths) => {
+    const generatedResponse = res();
+    await service.sendLocalImage(
+      req(),
+      generatedResponse,
+      new URL(`http://local/api/local-image?path=${encodeURIComponent(path.join(paths.generatedRoot, 'image.png'))}`)
+    );
+    assert.equal(generatedResponse.statusCode, 200);
+    assert.equal(generatedResponse.headers['content-type'], 'image/png');
+
+    const uploadResponse = res();
+    await service.sendLocalImage(
+      req(),
+      uploadResponse,
+      new URL(`http://local/api/local-image?path=${encodeURIComponent(path.join(paths.uploadRoot, 'upload.png'))}`)
+    );
+    assert.equal(uploadResponse.statusCode, 200);
+
+    const desktopImageResponse = res();
+    await service.sendLocalImage(
+      req(),
+      desktopImageResponse,
+      new URL(`http://local/api/local-image?path=${encodeURIComponent(path.join(paths.desktopImageRoot, 'desktop.png'))}`)
+    );
+    assert.equal(desktopImageResponse.statusCode, 200);
+
+    const blockedResponse = res();
+    await service.sendLocalImage(
+      req(),
+      blockedResponse,
+      new URL(`http://local/api/local-image?path=${encodeURIComponent(path.join(paths.root, 'secret.txt'))}`)
+    );
+    assert.equal(blockedResponse.statusCode, 404);
   });
 });

@@ -1,26 +1,26 @@
-const TOKEN_KEY = 'codexmobile.deviceToken';
+const LEGACY_TOKEN_KEY = 'codexmobile.deviceToken';
 
 export function getToken() {
-  return localStorage.getItem(TOKEN_KEY) || '';
+  return '';
 }
 
 export function setToken(token) {
-  localStorage.setItem(TOKEN_KEY, token);
+  if (token) {
+    localStorage.removeItem(LEGACY_TOKEN_KEY);
+  }
 }
 
 export function clearToken() {
-  localStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(LEGACY_TOKEN_KEY);
 }
 
 export async function apiFetch(path, options = {}) {
   const { timeoutMs: rawTimeoutMs, ...fetchOptions } = options;
-  const token = getToken();
   const timeoutMs = Number(rawTimeoutMs || 0);
   const controller = timeoutMs > 0 ? new AbortController() : null;
   const timeout = controller ? globalThis.setTimeout(() => controller.abort(), timeoutMs) : null;
   const headers = {
     ...(fetchOptions.body instanceof FormData ? {} : { 'content-type': 'application/json' }),
-    ...(token ? { authorization: `Bearer ${token}` } : {}),
     ...(fetchOptions.headers || {})
   };
 
@@ -28,6 +28,7 @@ export async function apiFetch(path, options = {}) {
   try {
     response = await fetch(path, {
       ...fetchOptions,
+      credentials: 'same-origin',
       headers,
       signal: fetchOptions.signal || controller?.signal,
       body:
@@ -54,21 +55,21 @@ export async function apiFetch(path, options = {}) {
     const error = new Error(data.error || `Request failed: ${response.status}`);
     error.status = response.status;
     error.code = data.code || null;
+    error.retryAfterSeconds = data.retryAfterSeconds || null;
     throw error;
   }
   return data;
 }
 
 export async function apiBlobFetch(path, options = {}) {
-  const token = getToken();
   const headers = {
     ...(options.body instanceof FormData ? {} : { 'content-type': 'application/json' }),
-    ...(token ? { authorization: `Bearer ${token}` } : {}),
     ...(options.headers || {})
   };
 
   const response = await fetch(path, {
     ...options,
+    credentials: 'same-origin',
     headers,
     body:
       options.body && !(options.body instanceof FormData) && typeof options.body !== 'string'
@@ -97,7 +98,6 @@ export async function apiBlobFetch(path, options = {}) {
 }
 
 export function websocketUrl() {
-  const token = encodeURIComponent(getToken());
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  return `${protocol}//${window.location.host}/ws?token=${token}`;
+  return `${protocol}//${window.location.host}/ws`;
 }

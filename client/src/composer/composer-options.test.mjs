@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   DEFAULT_MODEL_SPEED,
+  permissionModeForSecurity,
+  permissionOptionsForSecurity,
   modelSpeedLabel,
   normalizeModelSpeed,
   serviceTierForModelSpeed
@@ -19,4 +21,21 @@ test('model speed defaults to standard unless fast is selected', () => {
 test('fast model speed maps to Codex service tier', () => {
   assert.equal(serviceTierForModelSpeed('fast'), 'fast');
   assert.equal(serviceTierForModelSpeed('standard'), null);
+});
+
+test('danger full access is only selectable when enabled by server status', () => {
+  assert.deepEqual(
+    permissionOptionsForSecurity({ dangerFullAccessEnabled: false }).map((option) => option.value),
+    ['default', 'acceptEdits']
+  );
+  assert.deepEqual(
+    permissionOptionsForSecurity({ dangerFullAccessEnabled: true }).map((option) => option.value),
+    ['default', 'acceptEdits', 'bypassPermissions']
+  );
+});
+
+test('disabled danger full access selection falls back to default permission', () => {
+  assert.equal(permissionModeForSecurity('bypassPermissions', { dangerFullAccessEnabled: false }), 'default');
+  assert.equal(permissionModeForSecurity('bypassPermissions', { dangerFullAccessEnabled: true }), 'bypassPermissions');
+  assert.equal(permissionModeForSecurity('acceptEdits', { dangerFullAccessEnabled: false }), 'acceptEdits');
 });

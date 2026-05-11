@@ -184,8 +184,12 @@
 .settings-view {
   flex: 1 1 auto;
   min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
   overflow: auto;
-  padding-top: 8px;
+  padding: 8px 0 calc(env(safe-area-inset-bottom, 0px) + 10px);
+  overscroll-behavior: contain;
 }
 
 .settings-group {
@@ -249,6 +253,221 @@
   color: var(--text);
   background: var(--panel);
   box-shadow: 0 1px 4px rgba(20, 24, 31, 0.12);
+}
+
+.settings-security-card {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 8px;
+  background: #f5f7f4;
+}
+
+[data-theme="dark"] .settings-security-card {
+  background: #101012;
+}
+
+.settings-security-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+}
+
+.settings-security-head > div,
+.settings-security-head button,
+.settings-logout-button,
+.settings-device-row button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.settings-security-head > div {
+  min-width: 0;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.settings-security-head button,
+.settings-logout-button,
+.settings-device-row button {
+  min-height: 34px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--text);
+  background: var(--panel);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.settings-security-head button {
+  flex: 0 0 auto;
+  padding: 0 10px;
+}
+
+.settings-security-head button:disabled,
+.settings-logout-button:disabled,
+.settings-device-row button:disabled {
+  opacity: 0.45;
+}
+
+.settings-security-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.settings-security-summary > div {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.settings-security-summary span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.settings-security-summary strong {
+  color: var(--text);
+  font-size: 22px;
+  line-height: 26px;
+}
+
+.settings-logout-button {
+  width: 100%;
+  color: var(--danger);
+  background: rgba(194, 65, 58, 0.08);
+}
+
+.settings-security-error {
+  padding: 9px 10px;
+  border-radius: 8px;
+  color: var(--danger);
+  background: rgba(194, 65, 58, 0.08);
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.settings-device-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.settings-device-empty {
+  display: grid;
+  place-items: center;
+  min-height: 86px;
+  color: var(--muted);
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+.settings-device-row {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) 34px;
+  align-items: start;
+  gap: 9px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.settings-device-row.is-revoked {
+  opacity: 0.68;
+}
+
+.settings-device-icon {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  color: #fff;
+  background: #1f2937;
+}
+
+[data-theme="dark"] .settings-device-icon {
+  color: #171717;
+  background: #f4f4f5;
+}
+
+.settings-device-main {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.settings-device-main > div {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.settings-device-main strong,
+.settings-device-main p,
+.settings-device-main small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-device-main strong {
+  color: var(--text);
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.settings-device-main p,
+.settings-device-main small {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 17px;
+}
+
+.settings-device-state {
+  flex: 0 0 auto;
+  padding: 2px 7px;
+  border-radius: 999px;
+  color: #174eb8;
+  background: rgba(23, 78, 184, 0.1);
+  font-size: 11px;
+  line-height: 15px;
+  font-weight: 700;
+}
+
+.settings-device-state.is-current {
+  color: #0f6b3d;
+  background: rgba(15, 107, 61, 0.12);
+}
+
+.settings-device-state.is-revoked {
+  color: var(--muted);
+  background: rgba(125, 125, 118, 0.12);
+}
+
+.settings-device-row button {
+  width: 34px;
+  min-height: 34px;
+  padding: 0;
+  color: var(--danger);
+  background: rgba(194, 65, 58, 0.08);
 }
 
 .drawer-action,

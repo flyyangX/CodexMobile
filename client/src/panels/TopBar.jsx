@@ -1,4 +1,4 @@
-import { Bell, Check, Copy, FileText, GitBranch, GitCommitHorizontal, Menu, MoreHorizontal, RefreshCw, UploadCloud, Wifi } from 'lucide-react';
+import { Bell, Check, Copy, FileText, GitBranch, GitCommitHorizontal, Menu, MoreHorizontal, RefreshCw, Shield, UploadCloud, Wifi } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { copyTextToClipboard } from '../utils/clipboard.js';
 import { isDraftSession } from '../app/session-utils.js';
@@ -15,6 +15,7 @@ export function TopBar({
   selectedRuntime,
   onMenu,
   onOpenDocs,
+  onOpenSecurity,
   onGitAction,
   notificationSupported,
   notificationEnabled,
@@ -75,6 +76,11 @@ export function TopBar({
     onOpenDocs?.();
   }
 
+  function handleOpenSecurity() {
+    setMenuOpen(false);
+    onOpenSecurity?.();
+  }
+
   function handleEnableNotifications() {
     setMenuOpen(false);
     onEnableNotifications?.();
@@ -120,6 +126,10 @@ export function TopBar({
               <button type="button" role="menuitem" onClick={handleEnableNotifications}>
                 <Bell size={16} />
                 <span>{notificationEnabled ? '完成通知已开启' : '开启完成通知'}</span>
+              </button>
+              <button type="button" role="menuitem" onClick={handleOpenSecurity}>
+                <Shield size={16} />
+                <span>安全设备</span>
               </button>
               <div className="top-menu-divider" />
               <div className="top-menu-title">

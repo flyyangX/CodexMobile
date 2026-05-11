@@ -63,6 +63,20 @@ body,
   overscroll-behavior: none;
 }
 
+html[data-codex-route="pairing"],
+html[data-codex-route="pairing"] body,
+html[data-codex-route="pairing"] #root {
+  height: auto;
+  min-height: 100%;
+  overflow: auto;
+  overscroll-behavior: auto;
+}
+
+html[data-codex-route="pairing"] body {
+  position: static;
+  touch-action: auto;
+}
+
 body {
   position: fixed;
   inset: 0;

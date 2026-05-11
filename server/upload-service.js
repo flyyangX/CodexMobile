@@ -13,8 +13,45 @@ export function sanitizeFileName(fileName) {
   return baseName || 'upload.bin';
 }
 
-export function classifyUpload(mimeType) {
-  return String(mimeType || '').startsWith('image/') ? 'image' : 'file';
+function hasImageExtension(value) {
+  return /\.(?:png|jpe?g|gif|webp|bmp|heic|heif)$/i.test(String(value || '').split(/[?#]/)[0]);
+}
+
+export function classifyUpload(mimeType, fileName = '') {
+  return String(mimeType || '').toLowerCase().startsWith('image/') || hasImageExtension(fileName) ? 'image' : 'file';
+}
+
+export function sniffMimeType(data) {
+  const bytes = Buffer.isBuffer(data) ? data : Buffer.from(data || []);
+  if (bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) {
+    return 'image/png';
+  }
+  if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
+    return 'image/jpeg';
+  }
+  const gifHeader = bytes.subarray(0, 6).toString('ascii');
+  if (gifHeader === 'GIF87a' || gifHeader === 'GIF89a') {
+    return 'image/gif';
+  }
+  if (bytes.subarray(0, 4).toString('ascii') === 'RIFF' && bytes.subarray(8, 12).toString('ascii') === 'WEBP') {
+    return 'image/webp';
+  }
+  if (bytes.subarray(0, 4).toString('ascii') === '%PDF') {
+    return 'application/pdf';
+  }
+  if (bytes.subarray(4, 8).toString('ascii') === 'ftyp') {
+    return 'video/mp4';
+  }
+  return '';
+}
+
+export function normalizeUploadMimeType(declaredMimeType, data) {
+  const declared = String(declaredMimeType || 'application/octet-stream').toLowerCase();
+  const sniffed = sniffMimeType(data);
+  if (!sniffed || declared === sniffed) {
+    return declared;
+  }
+  return 'application/octet-stream';
 }
 
 export function parseMultipartFile(buffer, contentType, fieldName = 'file') {
@@ -58,10 +95,11 @@ export function parseMultipartFile(buffer, contentType, fieldName = 'file') {
       if (buffer[contentEnd - 2] === 13 && buffer[contentEnd - 1] === 10) {
         contentEnd -= 2;
       }
+      const data = buffer.slice(headerEnd + 4, contentEnd);
       return {
         fileName: sanitizeFileName(fileName),
-        mimeType,
-        data: buffer.slice(headerEnd + 4, contentEnd)
+        mimeType: normalizeUploadMimeType(mimeType, data),
+        data
       };
     }
 
@@ -137,32 +175,56 @@ export async function saveUpload(req, {
     size: part.data.length,
     mimeType: part.mimeType,
     path: filePath,
-    kind: classifyUpload(part.mimeType)
+    kind: classifyUpload(part.mimeType, part.fileName)
   };
 }
 
-export function normalizeAttachments(value) {
+export function isPathInsideRoot(filePath, rootPath) {
+  if (!filePath || !rootPath) {
+    return false;
+  }
+  const resolvedRoot = path.resolve(rootPath);
+  const resolvedFile = path.resolve(filePath);
+  const compareRoot = process.platform === 'win32' ? resolvedRoot.toLowerCase() : resolvedRoot;
+  const compareFile = process.platform === 'win32' ? resolvedFile.toLowerCase() : resolvedFile;
+  const relative = path.relative(compareRoot, compareFile);
+  return relative === '' || (relative && !relative.startsWith('..') && !path.isAbsolute(relative));
+}
+
+export function normalizeAttachments(value, { uploadRoot = '' } = {}) {
   if (!Array.isArray(value)) {
     return [];
   }
   return value
-    .filter((item) => item && typeof item.path === 'string' && item.path.trim())
-    .map((item) => ({
-      id: String(item.id || ''),
-      name: String(item.name || path.basename(item.path)),
-      size: Number(item.size) || 0,
-      mimeType: String(item.mimeType || ''),
-      path: String(item.path),
-      kind: item.kind === 'image' ? 'image' : 'file'
-    }));
+    .map((item) => {
+      if (!item || typeof item.path !== 'string' || !item.path.trim()) {
+        return null;
+      }
+      const attachmentPath = path.resolve(String(item.path));
+      if (uploadRoot && !isPathInsideRoot(attachmentPath, uploadRoot)) {
+        return null;
+      }
+      return {
+        id: String(item.id || ''),
+        name: String(item.name || path.basename(attachmentPath)),
+        size: Number(item.size) || 0,
+        mimeType: String(item.mimeType || ''),
+        path: attachmentPath,
+        kind: item.kind === 'image' ? 'image' : classifyUpload(item.mimeType, item.name || attachmentPath)
+      };
+    })
+    .filter(Boolean);
 }
 
 export function markdownImageDestination(value) {
-  const raw = String(value || '').trim();
+  let raw = String(value || '').trim();
   if (!raw) {
     return '';
   }
-  if (/[\s<>()]/.test(raw)) {
+  if (/^[A-Za-z]:[\\/]/.test(raw)) {
+    raw = raw.replace(/\\/g, '/');
+  }
+  if (/[\s<>()\\]/.test(raw) || /^[A-Za-z]:/.test(raw)) {
     return `<${raw.replace(/>/g, '%3E')}>`;
   }
   return raw;
@@ -193,7 +255,7 @@ export function withAttachmentReferences(message, attachments) {
     return message;
   }
 
-  const fileLines = attachments.map((attachment) => {
+  const fileLines = attachments.filter((attachment) => attachment.kind !== 'image').map((attachment) => {
     const type = attachment.kind === 'image' ? '图片' : '文件';
     return `- ${type}: ${attachment.name} (${attachment.path})`;
   });

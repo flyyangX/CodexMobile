@@ -4,7 +4,7 @@ export const PERMISSION_OPTIONS = [
   { value: 'bypassPermissions', label: '完全访问', danger: true }
 ];
 
-export const DEFAULT_PERMISSION_MODE = 'bypassPermissions';
+export const DEFAULT_PERMISSION_MODE = 'default';
 
 export const DEFAULT_MODEL_SPEED = 'standard';
 
@@ -43,6 +43,19 @@ export function shortModelName(model) {
 
 export function permissionLabel(value) {
   return PERMISSION_OPTIONS.find((option) => option.value === value)?.label || '默认权限';
+}
+
+export function permissionOptionsForSecurity(security = {}) {
+  if (security?.dangerFullAccessEnabled) {
+    return PERMISSION_OPTIONS;
+  }
+  return PERMISSION_OPTIONS.filter((option) => option.value !== 'bypassPermissions');
+}
+
+export function permissionModeForSecurity(value, security = {}) {
+  const requested = String(value || '').trim();
+  const allowed = new Set(permissionOptionsForSecurity(security).map((option) => option.value));
+  return allowed.has(requested) ? requested : DEFAULT_PERMISSION_MODE;
 }
 
 export function reasoningLabel(value) {

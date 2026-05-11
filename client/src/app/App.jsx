@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
-import { apiFetch, getToken } from '../api.js';
+import { apiFetch } from '../api.js';
 import { DEFAULT_PERMISSION_MODE } from '../composer/Composer.jsx';
-import { DEFAULT_MODEL_SPEED, normalizeModelSpeed } from '../composer/composer-options.js';
+import { DEFAULT_MODEL_SPEED, normalizeModelSpeed, permissionModeForSecurity } from '../composer/composer-options.js';
 import { useComposerSelections } from '../composer/useComposerSelections.js';
 import { useQueueDrafts } from '../composer/useQueueDrafts.js';
 import { connectionRecoveryState } from '../connection-recovery.js';
@@ -42,7 +42,8 @@ const MODEL_SPEED_KEY = 'codexmobile.modelSpeed';
 export default function App() {
   const [status, setStatus] = useState(DEFAULT_STATUS);
   const [contextStatus, setContextStatus] = useState(() => normalizeContextStatus(DEFAULT_STATUS.context));
-  const [authenticated, setAuthenticated] = useState(Boolean(getToken()));
+  const [authenticated, setAuthenticated] = useState(false);
+  const [authChecked, setAuthChecked] = useState(false);
   const [uiState, dispatchUi] = useReducer(appReducer, undefined, () => createInitialUiState());
   const setDrawerOpen = useCallback((value) => dispatchUi({ type: 'ui/drawerOpen', value }), []);
   const setPreviewImage = useCallback((value) => dispatchUi({ type: 'ui/previewImage', value }), []);
@@ -52,6 +53,7 @@ export default function App() {
   const setGitPanel = useCallback((value) => dispatchUi({ type: 'ui/gitPanel', value }), []);
   const setTheme = useCallback((value) => dispatchUi({ type: 'ui/theme', value }), []);
   const { drawerOpen, previewImage, docsOpen, docsBusy, docsError, gitPanel, theme } = uiState;
+  const [drawerRequestedView, setDrawerRequestedView] = useState('main');
   const {
     toasts,
     notificationSupported,
@@ -101,7 +103,7 @@ export default function App() {
   const [runningById, setRunningById] = useState({});
   const [threadRuntimeById, setThreadRuntimeById] = useState({});
   const [syncing, setSyncing] = useState(false);
-  const [connectionState, setConnectionState] = useState(() => (getToken() ? 'connecting' : 'disconnected'));
+  const [connectionState, setConnectionState] = useState('disconnected');
   const wsRef = useRef(null);
   const selectedProjectRef = useRef(null);
   const selectedSessionRef = useRef(null);
@@ -134,7 +136,7 @@ export default function App() {
     setSelectedSkillPaths
   });
 
-  useViewportSizing(composerRef);
+  useViewportSizing(composerRef, { enabled: authenticated });
 
   const selectedRuntime = selectedRunKeys(selectedSession)
     .map((key) => threadRuntimeById[key])
@@ -164,6 +166,13 @@ export default function App() {
   useEffect(() => {
     loadQueueDrafts(selectedSession).catch(() => null);
   }, [selectedSession?.id]);
+
+  useEffect(() => {
+    const normalizedPermissionMode = permissionModeForSecurity(permissionMode, status.security || DEFAULT_STATUS.security);
+    if (normalizedPermissionMode !== permissionMode) {
+      setPermissionMode(normalizedPermissionMode);
+    }
+  }, [permissionMode, status.security?.dangerFullAccessEnabled]);
 
   useEffect(() => {
     setThreadRuntimeById((current) => {
@@ -268,6 +277,13 @@ export default function App() {
   }, [theme]);
 
   useEffect(() => {
+    document.documentElement.dataset.codexRoute = !authChecked || !authenticated ? 'pairing' : 'app';
+    return () => {
+      delete document.documentElement.dataset.codexRoute;
+    };
+  }, [authChecked, authenticated]);
+
+  useEffect(() => {
     if (selectedReasoningEffort) {
       localStorage.setItem('codexmobile.reasoningEffort', selectedReasoningEffort);
     }
@@ -301,6 +317,35 @@ export default function App() {
     }
   }, [selectedModel, selectedReasoningEffort, status.model, status.reasoningEffort]);
 
+  const openDrawerMain = useCallback(() => {
+    setDrawerRequestedView('main');
+    setDrawerOpen(true);
+  }, [setDrawerOpen]);
+
+  const openSecuritySettings = useCallback(() => {
+    setDrawerRequestedView('settings');
+    setDrawerOpen(true);
+  }, [setDrawerOpen]);
+
+  useEffect(() => {
+    if (!authChecked || !authenticated || window.location.pathname !== '/security') {
+      return;
+    }
+    openSecuritySettings();
+    window.history.replaceState({}, '', '/');
+  }, [authChecked, authenticated, openSecuritySettings]);
+
+  const closeDrawer = useCallback(() => {
+    setDrawerOpen(false);
+  }, [setDrawerOpen]);
+
+  const handleSecurityLoggedOut = useCallback(() => {
+    setAuthenticated(false);
+    setConnectionState('disconnected');
+    setDrawerRequestedView('main');
+    setDrawerOpen(false);
+  }, [setDrawerOpen]);
+
   const {
     loadStatus,
     loadSessions,
@@ -328,7 +373,7 @@ export default function App() {
       return;
     }
     bootstrapStartedRef.current = true;
-    bootstrap();
+    bootstrap().finally(() => setAuthChecked(true));
   }, [bootstrap]);
 
   useEffect(() => {
@@ -421,7 +466,8 @@ export default function App() {
     setProjects,
     setSelectedProject,
     setExpandedProjectIds,
-    loadSessions
+    loadSessions,
+    onAuthenticationRevoked: handleSecurityLoggedOut
   });
 
   const {
@@ -489,7 +535,8 @@ export default function App() {
     markSessionCompleteNotice,
     markTurnCompleted,
     scheduleTurnRefresh,
-    loadQueueDrafts
+    loadQueueDrafts,
+    onPermissionModeRejected: () => setPermissionMode(DEFAULT_PERMISSION_MODE)
   });
 
   async function handleGitAction(action) {
@@ -532,8 +579,20 @@ export default function App() {
   });
   const topBarRuntime = selectedRuntime || (selectedRunning ? { status: 'running' } : null);
 
+  if (!authChecked) {
+    return (
+      <main className="pairing-screen">
+        <div className="pairing-mark">
+          <span className="pairing-loading-dot" />
+        </div>
+        <h1>CodexMobile</h1>
+        <p className="pairing-lead">正在确认当前设备授权...</p>
+      </main>
+    );
+  }
+
   if (!authenticated) {
-    return <PairingScreen onPaired={bootstrap} />;
+    return <PairingScreen onPaired={bootstrap} canPair={status.auth?.canPair !== false} />;
   }
 
   const sessionLoading = Boolean(sessionLoadingId && selectedSession?.id === sessionLoadingId);
@@ -547,8 +606,9 @@ export default function App() {
       connectionState,
       desktopBridge: status.desktopBridge,
       selectedRuntime: topBarRuntime,
-      onMenu: () => setDrawerOpen(true),
+      onMenu: openDrawerMain,
       onOpenDocs: () => setDocsOpen(true),
+      onOpenSecurity: openSecuritySettings,
       onGitAction: handleGitAction,
       notificationSupported,
       notificationEnabled,
@@ -592,7 +652,8 @@ export default function App() {
   };
   const drawerProps = {
     open: drawerOpen,
-    onClose: () => setDrawerOpen(false),
+    onClose: closeDrawer,
+    requestedView: drawerRequestedView,
     projects,
     selectedProject,
     selectedSession,
@@ -610,7 +671,8 @@ export default function App() {
     onSync: handleSync,
     syncing,
     theme,
-    setTheme
+    setTheme,
+    onLoggedOut: handleSecurityLoggedOut
   };
   const chatProps = {
     messages,
@@ -657,6 +719,7 @@ export default function App() {
     contextStatus: visibleContextStatus,
     runStatus: composerRunStatusForShell,
     desktopBridge: status.desktopBridge,
+    security: status.security || DEFAULT_STATUS.security,
     queueDrafts,
     onRestoreQueueDraft: restoreQueueDraft,
     onRemoveQueueDraft: removeQueueDraft,

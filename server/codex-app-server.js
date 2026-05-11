@@ -16,16 +16,69 @@ const BRIDGE_STATUS_CACHE_MS = 2500;
 
 let bridgeStatusCache = null;
 
-function resolveCodexBinary() {
+function uniqueValues(values) {
+  const seen = new Set();
+  const result = [];
+  for (const value of values) {
+    const item = String(value || '').trim();
+    const key = item.toLowerCase();
+    if (!item || seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    result.push(item);
+  }
+  return result;
+}
+
+function pathApiForPlatform(platform) {
+  return platform === 'win32' ? path.win32 : path.posix;
+}
+
+function windowsCodexCandidates(env, pathApi) {
+  const localAppData = env.LOCALAPPDATA || (env.USERPROFILE ? pathApi.join(env.USERPROFILE, 'AppData', 'Local') : '');
+  const appData = env.APPDATA || (env.USERPROFILE ? pathApi.join(env.USERPROFILE, 'AppData', 'Roaming') : '');
+  return [
+    localAppData ? pathApi.join(localAppData, 'OpenAI', 'Codex', 'bin', 'codex.exe') : '',
+    appData ? pathApi.join(appData, 'npm', 'codex.exe') : '',
+    appData ? pathApi.join(appData, 'npm', 'codex.cmd') : ''
+  ];
+}
+
+function pathEnvironmentCandidates(command, env, platform, pathApi) {
+  const pathValue = env.Path || env.PATH || env.path || '';
+  const pathDirs = String(pathValue).split(platform === 'win32' ? ';' : ':').filter(Boolean);
+  if (!pathDirs.length) {
+    return [];
+  }
+  const extensions = platform === 'win32'
+    ? uniqueValues(['.exe', '.cmd', '.bat', ...(env.PATHEXT || '').split(';'), ''])
+    : [''];
+  return pathDirs.flatMap((dir) => extensions.map((ext) => pathApi.join(dir, `${command}${ext}`)));
+}
+
+export function resolveCodexBinary({
+  env = process.env,
+  platform = process.platform,
+  existsSync = fsSync.existsSync
+} = {}) {
+  const pathApi = pathApiForPlatform(platform);
+  const explicit = [
+    env.CODEXMOBILE_CODEX_BINARY,
+    env.CODEX_BINARY
+  ];
+  const platformCandidates = platform === 'win32'
+    ? windowsCodexCandidates(env, pathApi)
+    : [DEFAULT_CODEX_APP_BINARY];
   const candidates = [
-    process.env.CODEXMOBILE_CODEX_BINARY,
-    process.env.CODEX_BINARY,
-    DEFAULT_CODEX_APP_BINARY,
+    ...explicit,
+    ...platformCandidates,
+    ...pathEnvironmentCandidates('codex', env, platform, pathApi),
     'codex'
   ].filter(Boolean);
 
   for (const candidate of candidates) {
-    if (candidate === 'codex' || fsSync.existsSync(candidate)) {
+    if (candidate === 'codex' || existsSync(candidate)) {
       return candidate;
     }
   }

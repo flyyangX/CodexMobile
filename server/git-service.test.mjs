@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import path from 'node:path';
 import test from 'node:test';
 import {
   createGitService,
@@ -213,12 +214,13 @@ test('git service creates a linked worktree from a codex branch name', async () 
     branchName: 'mobile panel',
     baseBranch: 'main'
   });
+  const expectedWorktreePath = path.join(path.dirname('/repo'), 'repo-mobile-panel');
   assert.equal(
-    calls.includes('worktree add -b codex/mobile-panel /repo-mobile-panel main'),
+    calls.includes(`worktree add -b codex/mobile-panel ${expectedWorktreePath} main`),
     true
   );
   assert.equal(result.branch, 'codex/mobile-panel');
-  assert.equal(result.worktreePath, '/repo-mobile-panel');
+  assert.equal(result.worktreePath, expectedWorktreePath);
 });
 
 test('git service generates a copyable PR draft', async () => {

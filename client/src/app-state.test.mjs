@@ -20,7 +20,8 @@ import {
   titleFromFirstMessage
 } from './app/session-utils.js';
 import { completeMessagesForTurnCompletion, runtimeKeysForPayload } from './app/useTurnRuntime.js';
-import { viewportSizingMetrics } from './app/useViewportSizing.js';
+import { isRevokedWebSocketClose } from './app/useAppWebSocket.js';
+import { shouldResetWindowScroll, viewportSizingMetrics } from './app/useViewportSizing.js';
 
 test('appReducer updates ui state with direct and functional values', () => {
   const initial = createInitialUiState({ storage: { getItem: () => 'light' } });
@@ -397,16 +398,28 @@ test('viewportSizingMetrics exposes keyboard inset from visual viewport', () => 
   assert.equal(metrics.height, 520);
 });
 
-test('localFileApiPath can include token for direct browser navigation', () => {
+test('isRevokedWebSocketClose detects device revocation close events', () => {
+  assert.equal(isRevokedWebSocketClose({ code: 1008, reason: 'revoked' }), true);
+  assert.equal(isRevokedWebSocketClose({ code: 1008, reason: { toString: () => 'revoked' } }), true);
+  assert.equal(isRevokedWebSocketClose({ code: 1006, reason: '' }), false);
+});
+
+test('localFileApiPath uses cookie-authenticated local file URLs', () => {
   assert.equal(
-    localFileApiPath('/Users/demo/report.md', 'secret token'),
-    '/api/local-file?path=%2FUsers%2Fdemo%2Freport.md&token=secret%20token'
+    localFileApiPath('/Users/demo/report.md'),
+    '/api/local-file?path=%2FUsers%2Fdemo%2Freport.md'
   );
+});
+
+test('shouldResetWindowScroll does not force login pages back to the header', () => {
+  assert.equal(shouldResetWindowScroll({ enabled: false, scrollX: 0, scrollY: 240 }), false);
+  assert.equal(shouldResetWindowScroll({ enabled: true, scrollX: 0, scrollY: 240 }), true);
+  assert.equal(shouldResetWindowScroll({ enabled: true, scrollX: 0, scrollY: 0 }), false);
 });
 
 test('localFilePreviewPath routes local files through the mobile preview page', () => {
   assert.equal(
-    localFilePreviewPath('/Users/demo/report.md', 'secret token'),
-    '/preview/file?path=%2FUsers%2Fdemo%2Freport.md&token=secret+token'
+    localFilePreviewPath('/Users/demo/report.md'),
+    '/preview/file?path=%2FUsers%2Fdemo%2Freport.md'
   );
 });

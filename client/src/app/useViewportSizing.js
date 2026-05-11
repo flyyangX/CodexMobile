@@ -22,9 +22,22 @@ export function viewportSizingMetrics({
   };
 }
 
-export function useViewportSizing(composerRef) {
+export function shouldResetWindowScroll({ enabled = true, scrollX = 0, scrollY = 0 } = {}) {
+  return Boolean(enabled) && (Boolean(scrollX) || Boolean(scrollY));
+}
+
+export function useViewportSizing(composerRef, { enabled = true } = {}) {
   useEffect(() => {
     const root = document.documentElement;
+    if (!enabled) {
+      root.style.removeProperty('--app-height');
+      root.style.removeProperty('--app-width');
+      root.style.removeProperty('--composer-height');
+      root.style.removeProperty('--keyboard-inset');
+      delete root.dataset.keyboard;
+      return undefined;
+    }
+
     let frame = 0;
     let observeFrame = 0;
     let composerObserver = null;
@@ -56,7 +69,7 @@ export function useViewportSizing(composerRef) {
           root.style.setProperty('--composer-height', `${composerHeight}px`);
         }
         root.dataset.keyboard = keyboardOpen ? 'open' : 'closed';
-        if (window.scrollX || window.scrollY) {
+        if (shouldResetWindowScroll({ enabled, scrollX: window.scrollX, scrollY: window.scrollY })) {
           window.scrollTo(0, 0);
         }
       });
@@ -91,5 +104,5 @@ export function useViewportSizing(composerRef) {
       root.style.removeProperty('--keyboard-inset');
       delete root.dataset.keyboard;
     };
-  }, [composerRef]);
+  }, [composerRef, enabled]);
 }

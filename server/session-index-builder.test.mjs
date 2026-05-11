@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import path from 'node:path';
 import test from 'node:test';
 import {
   PROJECTLESS_PROJECT_ID,
@@ -7,9 +8,9 @@ import {
 } from './session-index-builder.js';
 
 test('session index builder preserves project ordering, projectless sessions, hidden filtering, and child counts', async () => {
-  const projectA = '/tmp/codexmobile-project-a';
-  const projectB = '/tmp/codexmobile-project-b';
-  const projectlessRoot = '/tmp/codexmobile-projectless';
+  const projectA = path.resolve('/tmp/codexmobile-project-a');
+  const projectB = path.resolve('/tmp/codexmobile-project-b');
+  const projectlessRoot = path.resolve('/tmp/codexmobile-projectless');
   const projectAId = projectIdFor(projectA);
 
   const contextReads = [];

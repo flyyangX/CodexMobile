@@ -1,6 +1,6 @@
 import { ArrowLeft, Check, Code2, Copy, ExternalLink, FileText, Minus, Plus, RefreshCw, Save, Share2, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
-import { apiFetch, getToken } from '../api.js';
+import { apiFetch } from '../api.js';
 import { MarkdownContent } from '../chat/MarkdownContent.jsx';
 import { copyTextToClipboard } from '../utils/clipboard.js';
 import { THEME_KEY } from './AppState.js';
@@ -46,8 +46,7 @@ function cleanMimeType(value, fallback = 'application/octet-stream') {
 export default function FilePreviewApp() {
   const params = useMemo(() => new URLSearchParams(window.location.search), []);
   const filePath = params.get('path') || '';
-  const urlToken = params.get('token') || '';
-  const rawFileUrl = localFileApiPath(filePath, urlToken || getToken());
+  const rawFileUrl = localFileApiPath(filePath);
   const [mode, setMode] = useState('rendered');
   const [fontScale, setFontScale] = useState(1);
   const [copied, setCopied] = useState(false);
@@ -107,9 +106,7 @@ export default function FilePreviewApp() {
       }
       setState({ loading: true, error: '', text: '', objectUrl: '', pdfData: null, contentType: '', mtimeMs: 0, editable: false });
       try {
-        const response = await fetch(localFileApiPath(filePath, urlToken || getToken()), {
-          headers: getToken() ? { authorization: `Bearer ${getToken()}` } : {}
-        });
+        const response = await fetch(localFileApiPath(filePath), { credentials: 'same-origin' });
         if (!response.ok) {
           const text = await response.text();
           let message = `Request failed: ${response.status}`;
@@ -165,7 +162,7 @@ export default function FilePreviewApp() {
         URL.revokeObjectURL(objectUrl);
       }
     };
-  }, [filePath, urlToken]);
+  }, [filePath]);
 
   const kind = previewKind(filePath, state.contentType);
   const title = fileNameFromPath(filePath);
@@ -197,9 +194,7 @@ export default function FilePreviewApp() {
       const response = await fetch(state.objectUrl);
       return response.blob();
     }
-    const response = await fetch(rawFileUrl, {
-      headers: getToken() ? { authorization: `Bearer ${getToken()}` } : {}
-    });
+    const response = await fetch(rawFileUrl, { credentials: 'same-origin' });
     if (!response.ok) {
       throw new Error(`Request failed: ${response.status}`);
     }

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
+import path from 'node:path';
 import test from 'node:test';
-import { resolveAppServerTransport } from './codex-app-server.js';
+import { resolveAppServerTransport, resolveCodexBinary } from './codex-app-server.js';
 
 test('resolveAppServerTransport is strict and unavailable without a desktop socket', () => {
   const transport = resolveAppServerTransport({
@@ -33,4 +34,15 @@ test('resolveAppServerTransport can use a headless local fallback when explicitl
   assert.equal(transport.connected, true);
   assert.equal(transport.mode, 'headless-local');
   assert.match(transport.reason, /后台 Codex/);
+});
+
+test('resolveCodexBinary prefers the Windows desktop Codex binary when present', () => {
+  const localAppData = path.win32.join('C:\\Users', 'Ray', 'AppData', 'Local');
+  const desktopBinary = path.win32.join(localAppData, 'OpenAI', 'Codex', 'bin', 'codex.exe');
+
+  assert.equal(resolveCodexBinary({
+    env: { LOCALAPPDATA: localAppData },
+    platform: 'win32',
+    existsSync: (candidate) => candidate === desktopBinary
+  }), desktopBinary);
 });

@@ -165,23 +165,17 @@ export function localImageApiPath(value) {
   return `/api/local-image?path=${encodeURIComponent(normalized)}`;
 }
 
-export function localFileApiPath(value, token = '') {
+export function localFileApiPath(value) {
   const raw = String(value || '').trim();
   const normalized = /%[0-9a-f]{2}/i.test(raw) ? safeDecodeUriComponent(raw) : raw;
-  const tokenValue = String(token || '').trim();
-  const tokenParam = tokenValue ? `&token=${encodeURIComponent(tokenValue)}` : '';
-  return `/api/local-file?path=${encodeURIComponent(normalized)}${tokenParam}`;
+  return `/api/local-file?path=${encodeURIComponent(normalized)}`;
 }
 
-export function localFilePreviewPath(value, token = '') {
+export function localFilePreviewPath(value) {
   const raw = String(value || '').trim();
   const normalized = /%[0-9a-f]{2}/i.test(raw) ? safeDecodeUriComponent(raw) : raw;
   const params = new URLSearchParams();
   params.set('path', normalized);
-  const tokenValue = String(token || '').trim();
-  if (tokenValue) {
-    params.set('token', tokenValue);
-  }
   return `/preview/file?${params.toString()}`;
 }
 

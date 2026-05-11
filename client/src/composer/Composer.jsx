@@ -1,13 +1,13 @@
 import { ArrowUp, Bot, Check, ChevronDown, FileText, Image, Loader2, MessageSquare, MessageSquarePlus, Paperclip, Plus, Search, Shield, Square, Terminal, Trash2, Zap } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { apiFetch, getToken } from '../api.js';
+import { apiFetch } from '../api.js';
 import { detectComposerToken, filteredSlashCommands, replaceComposerToken } from '../composer-shortcuts.js';
 import { composerSendState } from '../send-state.js';
 import { isDraftSession } from '../app/session-utils.js';
 import { attachmentPreviewUrl, isImageAttachment } from './attachment-preview.js';
 import { filesFromClipboardData } from './paste-files.js';
 import { ContextStatusButton, ContextStatusDetails } from './ContextStatus.jsx';
-import { DEFAULT_PERMISSION_MODE, MODEL_SPEED_OPTIONS, PERMISSION_OPTIONS, REASONING_OPTIONS, formatBytes, modelSpeedLabel, normalizeModelSpeed, permissionLabel, reasoningLabel, selectedSkillSummary, shortModelName } from './composer-options.js';
+import { DEFAULT_PERMISSION_MODE, MODEL_SPEED_OPTIONS, REASONING_OPTIONS, formatBytes, modelSpeedLabel, normalizeModelSpeed, permissionLabel, permissionOptionsForSecurity, reasoningLabel, selectedSkillSummary, shortModelName } from './composer-options.js';
 
 export { DEFAULT_PERMISSION_MODE } from './composer-options.js';
 
@@ -44,6 +44,7 @@ export function Composer({
   contextStatus,
   runStatus,
   desktopBridge,
+  security,
   queueDrafts,
   onRestoreQueueDraft,
   onRemoveQueueDraft,
@@ -57,7 +58,6 @@ export function Composer({
   const [cursorPosition, setCursorPosition] = useState(0);
   const [fileSearch, setFileSearch] = useState({ query: '', loading: false, results: [] });
   const selectedFileMentions = Array.isArray(fileMentions) ? fileMentions : [];
-  const deviceToken = getToken();
   const hasInput = input.trim().length > 0 || attachments.length > 0 || selectedFileMentions.length > 0;
   const modelList = models?.length ? models : [{ value: selectedModel || 'gpt-5.5', label: selectedModel || 'gpt-5.5' }];
   const selectedModelLabel = modelList.find((model) => model.value === selectedModel)?.label || selectedModel || 'gpt-5.5';
@@ -65,6 +65,7 @@ export function Composer({
   const skillList = Array.isArray(skills) ? skills : [];
   const selectedSkillSet = new Set(Array.isArray(selectedSkillPaths) ? selectedSkillPaths : []);
   const selectedSkills = skillList.filter((skill) => selectedSkillSet.has(skill.path));
+  const permissionOptions = permissionOptionsForSecurity(security);
   const composerToken = useMemo(
     () => detectComposerToken(input, cursorPosition || input.length),
     [input, cursorPosition]
@@ -271,7 +272,7 @@ export function Composer({
       ) : null}
       {openMenu === 'permission' ? (
         <div className="composer-menu permission-menu">
-          {PERMISSION_OPTIONS.map((option) => (
+          {permissionOptions.map((option) => (
             <button
               key={option.value}
               type="button"
@@ -525,7 +526,7 @@ export function Composer({
           <div className="attachment-tray">
             {attachments.map((attachment) => {
               if (isImageAttachment(attachment)) {
-                const previewUrl = attachmentPreviewUrl(attachment, deviceToken);
+                const previewUrl = attachmentPreviewUrl(attachment);
                 return (
                   <span key={attachment.id} className="attachment-preview-card">
                     {previewUrl ? (
