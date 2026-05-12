@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { shouldCompleteTurnFromAppServerItem, statusLabel } from './codex-runner.js';
+import {
+  headlessCodexSandboxForPermissionMode,
+  shouldCompleteTurnFromAppServerItem,
+  statusLabel
+} from './codex-runner.js';
 
 test('statusLabel uses mobile-friendly command labels', () => {
   assert.equal(statusLabel('command_execution', 'running'), '正在处理本地任务');
@@ -41,5 +45,28 @@ test('completed final assistant item can finish a headless turn without turn com
       text: '还在输出'
     }),
     false
+  );
+});
+
+test('headless full-access env parsing matches server security options', async () => {
+  for (const value of ['1', 'true', 'yes', 'on']) {
+    assert.deepEqual(
+      headlessCodexSandboxForPermissionMode('bypassPermissions', {
+        CODEXMOBILE_ENABLE_DANGER_FULL_ACCESS: value
+      }),
+      { sandboxMode: 'danger-full-access', approvalPolicy: 'never' },
+      value
+    );
+  }
+
+  assert.throws(
+    () => headlessCodexSandboxForPermissionMode('bypassPermissions', {
+      CODEXMOBILE_ENABLE_DANGER_FULL_ACCESS: '0'
+    }),
+    /danger-full-access is disabled/
+  );
+  assert.throws(
+    () => headlessCodexSandboxForPermissionMode('bypassPermissions', {}),
+    /danger-full-access is disabled/
   );
 });

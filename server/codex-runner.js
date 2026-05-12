@@ -7,6 +7,7 @@ import { buildCodexTurnInput, imageMarkdownFromCodexImageGeneration } from './co
 import { buildCodexLarkCliContext } from './lark-cli.js';
 import { detectFeishuSkillKeys } from './feishu-skills.js';
 import { codexSandboxForPermissionMode } from './permission-policy.js';
+import { envFlag } from './security-options.js';
 
 const activeRuns = new Map();
 const NON_ASCII_PATH_PATTERN = /[^\u0000-\u007F]/;
@@ -81,9 +82,9 @@ async function ensureAsciiWorkingDirectory(projectPath) {
   return aliasPath;
 }
 
-function mapPermissionMode(permissionMode) {
+export function headlessCodexSandboxForPermissionMode(permissionMode, env = process.env) {
   return codexSandboxForPermissionMode(permissionMode, {
-    dangerFullAccessEnabled: process.env.CODEXMOBILE_ENABLE_DANGER_FULL_ACCESS === '1'
+    dangerFullAccessEnabled: envFlag(env, 'CODEXMOBILE_ENABLE_DANGER_FULL_ACCESS')
   });
 }
 
@@ -767,7 +768,7 @@ function abortError() {
 
 export async function runCodexTurn({ sessionId, draftSessionId, projectPath, message, attachments = [], selectedSkills = [], model, reasoningEffort, serviceTier, permissionMode, collaborationMode = null, turnId: providedTurnId }, emit) {
   const workingDirectory = await ensureAsciiWorkingDirectory(projectPath);
-  const { sandboxMode, approvalPolicy } = mapPermissionMode(permissionMode);
+  const { sandboxMode, approvalPolicy } = headlessCodexSandboxForPermissionMode(permissionMode);
   const feishuSkillKeys = detectFeishuSkillKeys(message);
   const normalizedReasoningEffort = normalizeReasoningEffort(reasoningEffort);
   const normalizedServiceTier = normalizeServiceTier(serviceTier);

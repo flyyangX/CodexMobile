@@ -75,6 +75,8 @@ let statusCache = { at: 0, value: null };
 let authRun = null;
 let larkCliCommandPath = '';
 let agentConfigPreparedAt = 0;
+const AGENT_LARK_PROFILE = 'openclaw';
+const LARK_RUNTIME_DIR_NAMES = new Set(['locks', 'cache', 'logs']);
 
 async function pathExists(candidate) {
   try {
@@ -150,31 +152,94 @@ export function larkCliEnvironment(baseEnv = process.env) {
   return env;
 }
 
+function isPortableLarkConfigFile(source, { excludedNames = [] } = {}) {
+  const name = path.basename(source).toLowerCase();
+  return !LARK_RUNTIME_DIR_NAMES.has(name) && !excludedNames.includes(name);
+}
+
+async function ensureRuntimeDirs(root) {
+  await Promise.all(
+    [...LARK_RUNTIME_DIR_NAMES].map((name) => fs.mkdir(path.join(root, name), { recursive: true }))
+  );
+}
+
+async function hasPortableLarkConfig(root, options = {}) {
+  if (!(await pathExists(root))) {
+    return false;
+  }
+  const entries = await fs.readdir(root, { withFileTypes: true });
+  for (const entry of entries) {
+    const source = path.join(root, entry.name);
+    if (!isPortableLarkConfigFile(source, options)) {
+      continue;
+    }
+    if (entry.isDirectory()) {
+      if (await hasPortableLarkConfig(source, options)) {
+        return true;
+      }
+      continue;
+    }
+    return true;
+  }
+  return false;
+}
+
+async function resetAgentLarkConfigDir(targetRoot) {
+  await fs.rm(targetRoot, { recursive: true, force: true });
+}
+
+async function copyPortableLarkConfig(source, target, options = {}) {
+  await fs.mkdir(target, { recursive: true });
+  await fs.cp(source, target, {
+    recursive: true,
+    force: true,
+    filter: (source) => isPortableLarkConfigFile(source, options)
+  });
+}
+
+export async function prepareAgentLarkConfigDir({
+  sourceRoot = path.join(os.homedir(), '.lark-cli'),
+  targetRoot = path.join(ROOT_DIR, '.codexmobile', 'lark-cli-agent'),
+  profileName = AGENT_LARK_PROFILE
+} = {}) {
+  const sourceProfile = path.join(sourceRoot, profileName);
+  const targetProfile = path.join(targetRoot, profileName);
+  const excludedProfileNames = [String(profileName || '').toLowerCase()].filter(Boolean);
+  const profileHasConfig = await hasPortableLarkConfig(sourceProfile);
+
+  if (profileHasConfig) {
+    await resetAgentLarkConfigDir(targetRoot);
+    await copyPortableLarkConfig(sourceProfile, targetProfile);
+    await ensureRuntimeDirs(targetProfile);
+    return targetRoot;
+  }
+
+  if (!(await pathExists(sourceRoot))) {
+    throw new Error(`lark-cli 配置目录不存在：${sourceRoot}`);
+  }
+  if (!(await hasPortableLarkConfig(sourceRoot, { excludedNames: excludedProfileNames }))) {
+    throw new Error(`lark-cli 配置目录没有可用配置：${sourceRoot}`);
+  }
+
+  await resetAgentLarkConfigDir(targetRoot);
+  await copyPortableLarkConfig(sourceRoot, targetRoot, { excludedNames: excludedProfileNames });
+  await copyPortableLarkConfig(sourceRoot, targetProfile, { excludedNames: excludedProfileNames });
+  await Promise.all([
+    ensureRuntimeDirs(targetRoot),
+    ensureRuntimeDirs(targetProfile)
+  ]);
+  return targetRoot;
+}
+
 async function ensureAgentLarkConfigDir() {
-  const sourceRoot = path.join(os.homedir(), '.lark-cli');
-  const sourceProfile = path.join(sourceRoot, 'openclaw');
-  const targetRoot = path.join(ROOT_DIR, '.codexmobile', 'lark-cli-agent');
-  const targetProfile = path.join(targetRoot, 'openclaw');
   const now = Date.now();
+  const targetRoot = path.join(ROOT_DIR, '.codexmobile', 'lark-cli-agent');
 
   if (now - agentConfigPreparedAt < 5000) {
     return targetRoot;
   }
 
-  await fs.mkdir(targetProfile, { recursive: true });
-  await fs.cp(sourceProfile, targetProfile, {
-    recursive: true,
-    force: true,
-    filter: (source) => {
-      const name = path.basename(source).toLowerCase();
-      return !['locks', 'cache', 'logs'].includes(name);
-    }
-  });
-  await Promise.all([
-    fs.mkdir(path.join(targetProfile, 'locks'), { recursive: true }),
-    fs.mkdir(path.join(targetProfile, 'cache'), { recursive: true }),
-    fs.mkdir(path.join(targetProfile, 'logs'), { recursive: true })
-  ]);
+  await prepareAgentLarkConfigDir({ targetRoot });
   agentConfigPreparedAt = now;
   return targetRoot;
 }
@@ -748,7 +813,7 @@ export async function buildCodexLarkCliContext(message = '') {
     const configRoot = await ensureAgentLarkConfigDir();
     const realCli = await resolveLarkCliCommand();
     env.LARKSUITE_CLI_CONFIG_DIR = configRoot;
-    env.LARKSUITE_CLI_LOG_DIR = path.join(configRoot, 'openclaw', 'logs');
+    env.LARKSUITE_CLI_LOG_DIR = path.join(configRoot, AGENT_LARK_PROFILE, 'logs');
     env.LARKSUITE_CLI_NO_UPDATE_NOTIFIER = '1';
     if (realCli && realCli !== LARK_CLI) {
       const guardDir = await ensureLarkCliGuardDir();
