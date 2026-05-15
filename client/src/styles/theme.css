@@ -159,6 +159,31 @@
   color: #ffffff;
 }
 
+html.is-pairing-screen,
+body.is-pairing-screen {
+  height: auto;
+  min-height: 100%;
+  overflow-y: auto;
+  overscroll-behavior-y: auto;
+}
+
+body.is-pairing-screen {
+  position: static;
+  inset: auto;
+  touch-action: auto;
+}
+
+html.is-pairing-screen body #root {
+  height: auto;
+  min-height: 100%;
+  overflow: visible;
+}
+
+html.is-pairing-screen .pairing-screen {
+  height: auto;
+  min-height: 100svh;
+}
+
 .pairing-panel {
   width: min(100%, 430px);
   padding: 24px 0 0;
@@ -239,6 +264,39 @@
   font-size: 13px;
   line-height: 18px;
   letter-spacing: 0;
+}
+
+.pairing-actions {
+  width: min(100%, 430px);
+  display: grid;
+  gap: 9px;
+  margin: -6px 0 22px;
+}
+
+.pairing-secondary-button {
+  width: 100%;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 14px;
+  color: rgba(255, 255, 255, 0.86);
+  background: rgba(255, 255, 255, 0.08);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.pairing-secondary-button:disabled {
+  opacity: 0.52;
+}
+
+.pairing-request-hint {
+  margin: 0 !important;
+  color: rgba(255, 255, 255, 0.62);
+  font-size: 13px;
+  line-height: 19px;
 }
 
 .pairing-form {

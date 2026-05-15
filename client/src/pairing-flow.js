@@ -6,7 +6,7 @@
  * Exports:
  * - defaultDeviceName — 从浏览器环境生成设备名。
  * - normalizePairingCode / pairingRequestFromSearch — 规范配对码与解析终端配对链接。
- * - completePairing — 调用配对接口的薄封装。
+ * - startPairingRequest / completePairing — 调用配对接口的薄封装。
  *
  * Inward（本模块依赖/组装的关键符号）: apiFetch、navigator user agent。
  *
@@ -51,6 +51,15 @@ export function pairingRequestFromSearch(search = '') {
     codeLength,
     autoSubmit: true
   };
+}
+
+export async function startPairingRequest({ deviceName = defaultDeviceName() } = {}) {
+  return apiFetch('/api/pair/request', {
+    method: 'POST',
+    body: {
+      deviceName
+    }
+  });
 }
 
 export async function completePairing({ requestId, code, deviceName = defaultDeviceName() }) {

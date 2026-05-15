@@ -36,7 +36,15 @@ export function viewportSizingMetrics({
   };
 }
 
-export function useViewportSizing(composerRef) {
+export function shouldResetWindowScroll({
+  lockWindowScroll = true,
+  scrollX = 0,
+  scrollY = 0
+} = {}) {
+  return Boolean(lockWindowScroll && (scrollX || scrollY));
+}
+
+export function useViewportSizing(composerRef, { lockWindowScroll = true } = {}) {
   useEffect(() => {
     const root = document.documentElement;
     let frame = 0;
@@ -70,7 +78,7 @@ export function useViewportSizing(composerRef) {
           root.style.setProperty('--composer-height', `${composerHeight}px`);
         }
         root.dataset.keyboard = keyboardOpen ? 'open' : 'closed';
-        if (window.scrollX || window.scrollY) {
+        if (shouldResetWindowScroll({ lockWindowScroll, scrollX: window.scrollX, scrollY: window.scrollY })) {
           window.scrollTo(0, 0);
         }
       });
@@ -105,5 +113,5 @@ export function useViewportSizing(composerRef) {
       root.style.removeProperty('--keyboard-inset');
       delete root.dataset.keyboard;
     };
-  }, [composerRef]);
+  }, [composerRef, lockWindowScroll]);
 }

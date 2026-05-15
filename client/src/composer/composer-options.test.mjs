@@ -13,11 +13,15 @@ import test from 'node:test';
 import {
   DEFAULT_MODEL_SPEED,
   DEFAULT_PERMISSION_MODE,
+  PERMISSION_MODE_KEY,
   modelSpeedLabel,
   normalizeModelSpeed,
+  normalizePermissionModePreference,
   normalizePermissionModeForSecurity,
   permissionOptionsForSecurity,
-  serviceTierForModelSpeed
+  readStoredPermissionMode,
+  serviceTierForModelSpeed,
+  writeStoredPermissionMode
 } from './composer-options.js';
 
 test('model speed defaults to standard unless fast is selected', () => {
@@ -47,4 +51,20 @@ test('permission options hide danger full access unless backend enables it', () 
   ]);
   assert.equal(normalizePermissionModeForSecurity('legacyExtraMode', { dangerFullAccessEnabled: false }), 'default');
   assert.equal(normalizePermissionModeForSecurity('bypassPermissions', { dangerFullAccessEnabled: false }), 'default');
+});
+
+test('permission mode preference is persisted separately from security filtering', () => {
+  const data = new Map();
+  const storage = {
+    getItem: (key) => data.get(key) || null,
+    setItem: (key, value) => data.set(key, value)
+  };
+
+  assert.equal(readStoredPermissionMode(storage), DEFAULT_PERMISSION_MODE);
+  assert.equal(writeStoredPermissionMode('bypassPermissions', storage), 'bypassPermissions');
+  assert.equal(data.get(PERMISSION_MODE_KEY), 'bypassPermissions');
+  assert.equal(readStoredPermissionMode(storage), 'bypassPermissions');
+  assert.equal(normalizePermissionModeForSecurity(readStoredPermissionMode(storage), { dangerFullAccessEnabled: false }), 'default');
+  assert.equal(normalizePermissionModeForSecurity(readStoredPermissionMode(storage), { dangerFullAccessEnabled: true }), 'bypassPermissions');
+  assert.equal(normalizePermissionModePreference('legacy'), DEFAULT_PERMISSION_MODE);
 });

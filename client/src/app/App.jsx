@@ -16,8 +16,13 @@
 
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { apiFetch, clearToken, getToken } from '../api.js';
-import { DEFAULT_PERMISSION_MODE } from '../composer/Composer.jsx';
-import { DEFAULT_MODEL_SPEED, normalizeModelSpeed, normalizePermissionModeForSecurity } from '../composer/composer-options.js';
+import {
+  DEFAULT_MODEL_SPEED,
+  normalizeModelSpeed,
+  normalizePermissionModeForSecurity,
+  readStoredPermissionMode,
+  writeStoredPermissionMode
+} from '../composer/composer-options.js';
 import { useComposerSelections } from '../composer/useComposerSelections.js';
 import { useQueueDrafts } from '../composer/useQueueDrafts.js';
 import { connectionRecoveryState } from '../connection-recovery.js';
@@ -120,7 +125,7 @@ export default function App() {
   const [input, setInput] = useState('');
   const [attachments, setAttachments] = useState([]);
   const [uploading, setUploading] = useState(false);
-  const [permissionMode, setPermissionMode] = useState(DEFAULT_PERMISSION_MODE);
+  const [permissionMode, setPermissionMode] = useState(() => readStoredPermissionMode());
   const [selectedModel, setSelectedModel] = useState(DEFAULT_STATUS.model);
   const [selectedModelSpeed, setSelectedModelSpeed] = useState(() => normalizeModelSpeed(localStorage.getItem(MODEL_SPEED_KEY)));
   const [selectedCollaborationMode, setSelectedCollaborationMode] = useState(null);
@@ -223,14 +228,16 @@ export default function App() {
     setSelectedSkillPaths
   });
 
-  useViewportSizing(composerRef);
+  useViewportSizing(composerRef, { lockWindowScroll: authenticated });
 
-  useEffect(() => {
-    const normalized = normalizePermissionModeForSecurity(permissionMode, status.security);
-    if (normalized !== permissionMode) {
-      setPermissionMode(normalized);
-    }
-  }, [permissionMode, status.security]);
+  const activePermissionMode = useMemo(
+    () => normalizePermissionModeForSecurity(permissionMode, status.security),
+    [permissionMode, status.security]
+  );
+
+  const handleSelectPermission = useCallback((value) => {
+    setPermissionMode(writeStoredPermissionMode(value));
+  }, []);
 
   useEffect(() => {
     if (!authenticated || desktopDrawerSeededRef.current || typeof window === 'undefined' || !window.matchMedia) {
@@ -625,7 +632,7 @@ export default function App() {
     projects,
     selectedSkillPaths,
     status,
-    permissionMode,
+    permissionMode: activePermissionMode,
     selectedModel,
     selectedModelSpeed,
     selectedReasoningEffort,
@@ -1090,8 +1097,8 @@ export default function App() {
     onToggleSkill: toggleSelectedSkill,
     onSelectSkill: selectSkill,
     onClearSkills: clearSelectedSkills,
-    permissionMode,
-    onSelectPermission: setPermissionMode,
+    permissionMode: activePermissionMode,
+    onSelectPermission: handleSelectPermission,
     security: status.security,
     attachments,
     onUploadFiles: handleUploadFiles,

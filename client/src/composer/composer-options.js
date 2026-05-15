@@ -20,6 +20,7 @@ export const PERMISSION_OPTIONS = [
 ];
 
 export const DEFAULT_PERMISSION_MODE = 'default';
+export const PERMISSION_MODE_KEY = 'codexmobile.permissionMode';
 
 export const DEFAULT_MODEL_SPEED = 'standard';
 
@@ -58,6 +59,28 @@ export function shortModelName(model) {
 
 export function permissionLabel(value) {
   return PERMISSION_OPTIONS.find((option) => option.value === value)?.label || '默认权限';
+}
+
+export function normalizePermissionModePreference(value) {
+  return PERMISSION_OPTIONS.some((option) => option.value === value) ? value : DEFAULT_PERMISSION_MODE;
+}
+
+export function readStoredPermissionMode(storage = globalThis.localStorage) {
+  try {
+    return normalizePermissionModePreference(storage?.getItem(PERMISSION_MODE_KEY));
+  } catch {
+    return DEFAULT_PERMISSION_MODE;
+  }
+}
+
+export function writeStoredPermissionMode(value, storage = globalThis.localStorage) {
+  const normalized = normalizePermissionModePreference(value);
+  try {
+    storage?.setItem(PERMISSION_MODE_KEY, normalized);
+  } catch {
+    // localStorage can be unavailable in private or restricted browser contexts.
+  }
+  return normalized;
 }
 
 export function permissionOptionsForSecurity(security = {}) {

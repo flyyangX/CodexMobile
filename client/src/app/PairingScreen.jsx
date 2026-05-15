@@ -16,13 +16,17 @@ import { useEffect, useRef, useState } from 'react';
 import {
   completePairing,
   normalizePairingCode,
-  pairingRequestFromSearch
+  pairingRequestFromSearch,
+  startPairingRequest
 } from '../pairing-flow.js';
+import { unlockPairingPageScroll } from './pairing-scroll-lock.js';
 
 export default function PairingScreen({ pairing: pairingStatus = {}, onPaired }) {
   const [code, setCode] = useState('');
   const [error, setError] = useState('');
   const [pairing, setPairing] = useState(false);
+  const [pairingRequest, setPairingRequest] = useState(null);
+  const [requestingPair, setRequestingPair] = useState(false);
   const [inputActive, setInputActive] = useState(false);
   const autoPairRef = useRef(pairingRequestFromSearch(globalThis.location?.search || ''));
   const formRef = useRef(null);
@@ -39,6 +43,17 @@ export default function PairingScreen({ pairing: pairingStatus = {}, onPaired })
     }
     return error?.message || '配对失败，请确认电脑端 CodexMobile 正在运行。';
   }
+
+  function pairingRequestErrorMessage(error) {
+    if (error?.status === 429 || error?.retryAfterSeconds) {
+      return '配对请求太频繁，请稍后再试。';
+    }
+    return error?.message || '无法发起配对请求，请确认手机和电脑在同一网络。';
+  }
+
+  useEffect(() => {
+    return unlockPairingPageScroll();
+  }, []);
 
   useEffect(() => {
     const fromSearch = autoPairRef.current;
@@ -74,12 +89,27 @@ export default function PairingScreen({ pairing: pairingStatus = {}, onPaired })
     setPairing(true);
     setError('');
     try {
-      await completePairing({ code });
+      await completePairing({ requestId: pairingRequest?.requestId, code });
       onPaired();
     } catch (err) {
       setError(pairingErrorMessage(err));
     } finally {
       setPairing(false);
+    }
+  }
+
+  async function handleStartPairingRequest() {
+    setRequestingPair(true);
+    setError('');
+    try {
+      const request = await startPairingRequest();
+      setPairingRequest(request);
+      setCode('');
+      window.setTimeout(scrollFormIntoView, 120);
+    } catch (err) {
+      setError(pairingRequestErrorMessage(err));
+    } finally {
+      setRequestingPair(false);
     }
   }
 
@@ -112,6 +142,15 @@ export default function PairingScreen({ pairing: pairingStatus = {}, onPaired })
           {terminalCommands.map((command) => (
             <code key={command}>{command}</code>
           ))}
+        </div>
+        <div className="pairing-actions">
+          <button type="button" className="pairing-secondary-button" onClick={handleStartPairingRequest} disabled={requestingPair || pairing}>
+            {requestingPair ? <Loader2 className="spin" size={17} /> : <Terminal size={17} />}
+            在手机上发起配对
+          </button>
+          {pairingRequest?.requestId ? (
+            <p className="pairing-request-hint">已在电脑端生成配对码，请查看终端或系统通知后输入。</p>
+          ) : null}
         </div>
         <form ref={formRef} className="pairing-form" onSubmit={handlePair}>
           <label htmlFor="pairing-code">配对码</label>

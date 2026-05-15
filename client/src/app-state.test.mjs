@@ -29,7 +29,7 @@ import {
   titleFromFirstMessage
 } from './app/session-utils.js';
 import { completeMessagesForTurnCompletion, runtimeKeysForPayload } from './app/useTurnRuntime.js';
-import { viewportSizingMetrics } from './app/useViewportSizing.js';
+import { shouldResetWindowScroll, viewportSizingMetrics } from './app/useViewportSizing.js';
 
 test('appReducer updates ui state with direct and functional values', () => {
   const initial = createInitialUiState({ storage: { getItem: () => 'light' } });
@@ -351,6 +351,12 @@ test('viewportSizingMetrics exposes keyboard inset from visual viewport', () => 
   assert.equal(metrics.keyboardOpen, true);
   assert.equal(metrics.keyboardInset, 324);
   assert.equal(metrics.height, 520);
+});
+
+test('window scroll reset can be disabled outside the main app shell', () => {
+  assert.equal(shouldResetWindowScroll({ lockWindowScroll: false, scrollX: 0, scrollY: 260 }), false);
+  assert.equal(shouldResetWindowScroll({ lockWindowScroll: true, scrollX: 0, scrollY: 260 }), true);
+  assert.equal(shouldResetWindowScroll({ lockWindowScroll: true, scrollX: 0, scrollY: 0 }), false);
 });
 
 test('localFileApiPath uses Cookie auth and does not include token query parameters', () => {
