@@ -13,6 +13,7 @@
  * 不负责: ChatService 发包实现。
  */
 import { readBody, sendJson } from './http-utils.js';
+import { createSyncEventPayload } from './sync/sync-events.js';
 
 export function createSessionRouteHandler({
   listProjects,
@@ -66,7 +67,14 @@ export function createSessionRouteHandler({
           throw error;
         }))(sessionId);
         const snapshot = await refreshCodexCache();
-        broadcast({ type: 'sync-complete', syncedAt: snapshot.syncedAt, projects: snapshot.projects });
+        broadcast(createSyncEventPayload('sessions.synced', {
+          source: 'session-routes',
+          syncedAt: snapshot.syncedAt,
+          projects: snapshot.projects
+        }, {
+          syncedAt: snapshot.syncedAt,
+          projects: snapshot.projects
+        }));
         sendJson(res, 200, { success: true, ...result });
       } catch (error) {
         const statusCode = error.statusCode || 500;
@@ -105,17 +113,27 @@ export function createSessionRouteHandler({
 
       try {
         const renamed = await renameSession(session.id, project.id, title, { auto: Boolean(body.auto) });
-        broadcast({
-          type: 'session-renamed',
+        broadcast(createSyncEventPayload('thread.renamed', {
           projectId: project.id,
           sessionId: renamed.id,
           title: renamed.title,
           titleLocked: renamed.titleLocked,
           updatedAt: renamed.updatedAt,
           session: renamed
-        });
+        }, {
+          title: renamed.title,
+          titleLocked: renamed.titleLocked,
+          session: renamed
+        }));
         const snapshot = await refreshCodexCache();
-        broadcast({ type: 'sync-complete', syncedAt: snapshot.syncedAt, projects: snapshot.projects });
+        broadcast(createSyncEventPayload('sessions.synced', {
+          source: 'session-routes',
+          syncedAt: snapshot.syncedAt,
+          projects: snapshot.projects
+        }, {
+          syncedAt: snapshot.syncedAt,
+          projects: snapshot.projects
+        }));
         sendJson(res, 200, { success: true, session: renamed });
       } catch (error) {
         console.warn(`[sessions] rename failed session=${sessionId} project=${projectId}: ${error.message}`);
@@ -144,7 +162,14 @@ export function createSessionRouteHandler({
       try {
         const deleted = await deleteSession(sessionId, project.id);
         const snapshot = await refreshCodexCache();
-        broadcast({ type: 'sync-complete', syncedAt: snapshot.syncedAt, projects: snapshot.projects });
+        broadcast(createSyncEventPayload('sessions.synced', {
+          source: 'session-routes',
+          syncedAt: snapshot.syncedAt,
+          projects: snapshot.projects
+        }, {
+          syncedAt: snapshot.syncedAt,
+          projects: snapshot.projects
+        }));
         sendJson(res, 200, { success: true, ...deleted });
       } catch (error) {
         const statusCode = error.statusCode || 500;
@@ -159,7 +184,12 @@ export function createSessionRouteHandler({
       const messageId = decodeURIComponent(parts[4]);
       try {
         const deleted = await hideSessionMessage(sessionId, messageId);
-        broadcast({ type: 'message-deleted', ...deleted });
+        broadcast(createSyncEventPayload('message.deleted', {
+          source: 'session-routes',
+          ...deleted
+        }, {
+          messageId: deleted.messageId || deleted.id || messageId
+        }));
         sendJson(res, 200, { success: true, ...deleted });
       } catch (error) {
         const statusCode = error.statusCode || 500;

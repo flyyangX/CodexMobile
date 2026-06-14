@@ -130,7 +130,6 @@ export function useAppWebSocket({
         return;
       }
       const renamePayload = {
-        type: 'session-renamed',
         projectId,
         sessionId,
         title,

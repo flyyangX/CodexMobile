@@ -71,67 +71,89 @@ export function createChatQueue({ maxRecentTurns = DEFAULT_MAX_RECENT_TURNS } = 
   }
 
   function rememberTurnEvent(payload) {
-    if (!payload?.turnId) {
+    const event = payload?.type === 'sync-event' ? payload.event : null;
+    const normalized = event
+      ? {
+        type: event.eventType,
+        projectId: event.projectId,
+        sessionId: event.sessionId,
+        previousSessionId: event.previousSessionId,
+        draftSessionId: event.draftSessionId,
+        turnId: event.turnId || event.clientTurnId,
+        clientTurnId: event.clientTurnId,
+        status: event.status,
+        kind: event.itemType || event.activity?.kind,
+        label: event.label,
+        detail: event.detail,
+        content: event.message?.content,
+        messageId: event.message?.id || event.itemId,
+        startedAt: event.startedAt,
+        completedAt: event.completedAt,
+        durationMs: event.durationMs,
+        usage: event.usage || null,
+        context: event.context || null,
+        hadAssistantText: event.hadAssistantText
+      }
+      : payload;
+    if (!normalized?.turnId) {
       return;
     }
 
     const patch = {
-      projectId: payload.projectId,
-      sessionId: payload.sessionId || undefined,
-      previousSessionId: payload.previousSessionId || undefined
+      projectId: normalized.projectId,
+      sessionId: normalized.sessionId || undefined,
+      previousSessionId: normalized.previousSessionId || undefined
     };
 
-    if (payload.type === 'chat-started') {
+    if (normalized.type === 'turn.running') {
       patch.status = 'running';
-      patch.startedAt = payload.startedAt || new Date().toISOString();
-      patch.label = '正在思考';
-    } else if (payload.type === 'thread-started') {
+      patch.startedAt = normalized.startedAt || new Date().toISOString();
+      patch.label = normalized.label || '正在思考';
+    } else if (normalized.type === 'thread.started') {
       patch.status = 'running';
       patch.label = '正在思考';
-    } else if (payload.type === 'status-update') {
-      patch.status = payload.status || 'running';
-      patch.kind = payload.kind || undefined;
-      patch.label = payload.label || undefined;
-      patch.detail = payload.detail || undefined;
-    } else if (payload.type === 'assistant-update') {
+    } else if (normalized.type === 'turn.queued') {
+      patch.status = 'queued';
+      patch.label = normalized.label || '已加入队列';
+    } else if (normalized.type === 'message.assistant.delta' || normalized.type === 'message.assistant.completed') {
       patch.status = 'running';
       patch.hadAssistantText = true;
-      patch.assistantPreview = payload.content || '';
-      patch.messageId = payload.messageId || undefined;
+      patch.assistantPreview = normalized.content || '';
+      patch.messageId = normalized.messageId || undefined;
       patch.label = '正在回复';
-    } else if (payload.type === 'context-status-update') {
-      patch.status = payload.status || 'running';
-      patch.context = payload;
-      patch.label = '背景信息已同步';
-    } else if (payload.type === 'chat-complete') {
+    } else if (normalized.type === 'context.updated') {
+      patch.status = normalized.status || 'running';
+      patch.context = normalized.context;
+      patch.label = normalized.label || '背景信息已同步';
+    } else if (normalized.type === 'turn.completed') {
       patch.status = 'completed';
-      patch.completedAt = payload.completedAt || new Date().toISOString();
-      patch.hadAssistantText = Boolean(payload.hadAssistantText);
-      patch.usage = payload.usage || null;
-      patch.context = payload.context || null;
-      patch.label = '任务已完成';
-    } else if (payload.type === 'chat-error') {
+      patch.completedAt = normalized.completedAt || new Date().toISOString();
+      patch.hadAssistantText = Boolean(normalized.hadAssistantText);
+      patch.usage = normalized.usage || null;
+      patch.context = normalized.context || null;
+      patch.label = normalized.label || '任务已完成';
+    } else if (normalized.type === 'turn.failed') {
       patch.status = 'failed';
-      patch.error = payload.error || '任务失败';
-      patch.label = '任务失败';
-    } else if (payload.type === 'chat-aborted') {
+      patch.error = normalized.detail || '任务失败';
+      patch.label = normalized.label || '任务失败';
+    } else if (normalized.type === 'turn.aborted') {
       patch.status = 'aborted';
-      patch.label = '已中止';
+      patch.label = normalized.label || '已中止';
     } else {
       return;
     }
 
-    if (payload.startedAt) {
-      patch.startedAt = payload.startedAt;
+    if (normalized.startedAt) {
+      patch.startedAt = normalized.startedAt;
     }
-    if (payload.completedAt) {
-      patch.completedAt = payload.completedAt;
+    if (normalized.completedAt) {
+      patch.completedAt = normalized.completedAt;
     }
-    if (payload.durationMs) {
-      patch.durationMs = payload.durationMs;
+    if (normalized.durationMs) {
+      patch.durationMs = normalized.durationMs;
     }
 
-    rememberTurn(payload.turnId, patch);
+    rememberTurn(normalized.turnId, patch);
   }
 
   function rememberConversationAlias(queueKey, sessionId) {

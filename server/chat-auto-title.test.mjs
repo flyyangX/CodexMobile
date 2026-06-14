@@ -11,7 +11,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createChatAutoNamer } from './chat-auto-title.js';
 
-test('chat auto namer refreshes, renames unlocked sessions, and broadcasts sync completion', async () => {
+test('chat auto namer refreshes, renames unlocked sessions, and broadcasts sessions synced', async () => {
   const calls = [];
   const broadcasts = [];
   const namer = createChatAutoNamer({
@@ -50,11 +50,10 @@ test('chat auto namer refreshes, renames unlocked sessions, and broadcasts sync 
     ['maybeAutoNameSession', 'thread-1', '帮我看一下线程自动命名怎么实现', '解释了这条线程的自动命名流程。', 'function'],
     ['refresh']
   ]);
-  assert.deepEqual(broadcasts, [{
-    type: 'sync-complete',
-    syncedAt: 'sync-2',
-    projects: [{ id: 'project-1' }]
-  }]);
+  assert.equal(broadcasts[0].type, 'sync-event');
+  assert.equal(broadcasts[0].event.eventType, 'sessions.synced');
+  assert.equal(broadcasts[0].event.syncedAt, 'sync-2');
+  assert.deepEqual(broadcasts[0].event.projects, [{ id: 'project-1' }]);
 });
 
 test('chat auto namer skips missing content and locked sessions without renaming', async () => {
@@ -127,4 +126,3 @@ test('chat auto namer schedule catches failures and logs them', async () => {
   assert.equal(warnings[0][0], '[title] auto naming failed:');
   assert.equal(warnings[0][1], 'refresh failed');
 });
-

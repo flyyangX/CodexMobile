@@ -1,28 +1,29 @@
 /**
- * 测试 server/sync：旧 payload 归一化为 SyncEvent 后，runtime 与 session 快照如何投影。
+ * 测试 server/sync：SyncEvent 与 app-server v2 事件如何投影 runtime 与 session 快照。
  *
- * Keywords: sync-store, sync-event, runtime
+ * Keywords: sync-store, sync-event, runtime, app-server-v2
  *
  * Exports: 无导出 / 内含用例。
  *
- * Inward: server/sync/sync-events.js, server/sync/sync-store.js
+ * Inward: server/sync/sync-events.js, server/sync/app-server-events.js, server/sync/sync-store.js
  */
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { normalizeLegacyPayloadToSyncEvents } from './sync-events.js';
+import { normalizeAppServerMessageToSyncEvents } from './app-server-events.js';
+import { createSyncEvent } from './sync-events.js';
 import { createSyncStore } from './sync-store.js';
 
 test('desktop IPC running and completed update one runtime without chat activity semantics', () => {
   const store = createSyncStore();
-  const [running] = normalizeLegacyPayloadToSyncEvents({
-    type: 'status-update',
+  const running = createSyncEvent('turn.running', {
     source: 'desktop-ipc',
-    kind: 'turn',
     status: 'running',
     sessionId: 'session-1',
     turnId: 'turn-1',
     label: '已交给桌面端处理'
+  }, {
+    suppressedInChat: true
   });
 
   assert.equal(running.eventType, 'turn.running');
@@ -31,8 +32,7 @@ test('desktop IPC running and completed update one runtime without chat activity
   assert.equal(store.snapshot().runtimeById['session-1'].source, 'desktop-ipc');
   assert.equal(store.snapshot().runtimeById['turn-1'].status, 'running');
 
-  const [completed] = normalizeLegacyPayloadToSyncEvents({
-    type: 'desktop-thread-updated',
+  const completed = createSyncEvent('turn.completed', {
     source: 'desktop-ipc',
     status: 'completed',
     sessionId: 'session-1',
@@ -46,10 +46,8 @@ test('desktop IPC running and completed update one runtime without chat activity
 
 test('desktop IPC terminal event clears client turn keys for the same session', () => {
   const store = createSyncStore();
-  const [running] = normalizeLegacyPayloadToSyncEvents({
-    type: 'status-update',
+  const running = createSyncEvent('turn.running', {
     source: 'desktop-ipc',
-    kind: 'turn',
     status: 'running',
     sessionId: 'session-1',
     turnId: 'client-turn-1',
@@ -58,8 +56,7 @@ test('desktop IPC terminal event clears client turn keys for the same session', 
   store.applyEvent(running);
   assert.equal(store.snapshot().runtimeById['client-turn-1'].status, 'running');
 
-  const [completed] = normalizeLegacyPayloadToSyncEvents({
-    type: 'desktop-thread-updated',
+  const completed = createSyncEvent('turn.completed', {
     source: 'desktop-ipc',
     status: 'completed',
     sessionId: 'session-1'
@@ -71,15 +68,47 @@ test('desktop IPC terminal event clears client turn keys for the same session', 
   assert.equal(store.snapshot().terminalById['client-turn-1'].status, 'completed');
 });
 
+test('app-server v2 terminal event clears client and app turn runtime keys', () => {
+  const store = createSyncStore();
+  const [running] = normalizeAppServerMessageToSyncEvents({
+    method: 'turn/started',
+    params: { threadId: 'session-1', turn: { id: 'app-turn-1' } }
+  }, {
+    source: 'headless-local',
+    sessionId: 'session-1',
+    turnId: 'client-turn-1',
+    clientTurnId: 'client-turn-1'
+  });
+  store.applyEvent(running);
+  assert.equal(store.snapshot().runtimeById['session-1'].appTurnId, 'app-turn-1');
+  assert.equal(store.snapshot().runtimeById['client-turn-1'].protocol, 'app-server-v2');
+  assert.equal(store.snapshot().runtimeById['app-turn-1'].status, 'running');
+
+  const [completed] = normalizeAppServerMessageToSyncEvents({
+    method: 'turn/completed',
+    params: { threadId: 'session-1', turn: { id: 'app-turn-1', status: 'completed' } }
+  }, {
+    source: 'headless-local',
+    sessionId: 'session-1',
+    turnId: 'client-turn-1',
+    clientTurnId: 'client-turn-1',
+    appTurnId: 'app-turn-1'
+  });
+  store.applyEvent(completed);
+
+  assert.equal(store.snapshot().runtimeById['session-1'], undefined);
+  assert.equal(store.snapshot().runtimeById['client-turn-1'], undefined);
+  assert.equal(store.snapshot().runtimeById['app-turn-1'], undefined);
+  assert.equal(store.snapshot().terminalById['app-turn-1'].protocol, 'app-server-v2');
+});
+
 test('headless and desktop running events share the same runtime projection shape', () => {
   const store = createSyncStore();
-  for (const payload of [
-    { type: 'status-update', source: 'desktop-ipc', status: 'running', sessionId: 'desktop-session', turnId: 'desktop-turn' },
-    { type: 'status-update', source: 'headless-local', status: 'running', sessionId: 'headless-session', turnId: 'headless-turn' }
+  for (const event of [
+    createSyncEvent('turn.running', { source: 'desktop-ipc', status: 'running', sessionId: 'desktop-session', turnId: 'desktop-turn' }),
+    createSyncEvent('turn.running', { source: 'headless-local', status: 'running', sessionId: 'headless-session', turnId: 'headless-turn' })
   ]) {
-    for (const event of normalizeLegacyPayloadToSyncEvents(payload)) {
-      store.applyEvent(event);
-    }
+    store.applyEvent(event);
   }
   const snapshot = store.snapshot();
   assert.deepEqual(Object.keys(snapshot.runtimeById['desktop-session']).sort(), Object.keys(snapshot.runtimeById['headless-session']).sort());
@@ -88,17 +117,21 @@ test('headless and desktop running events share the same runtime projection shap
 });
 
 test('assistant plan updates preserve plan implementation metadata', () => {
-  const [event] = normalizeLegacyPayloadToSyncEvents({
-    type: 'assistant-update',
+  const event = createSyncEvent('message.assistant.completed', {
     sessionId: 'session-1',
     turnId: 'turn-1',
-    messageId: 'implement-plan:app-turn-1',
-    content: '<proposed_plan>\n# 修复计划\n</proposed_plan>',
-    planImplementation: {
-      requestId: 'implement-plan:app-turn-1',
-      turnId: 'app-turn-1',
-      planContent: '# 修复计划',
-      completed: false
+    itemId: 'implement-plan:app-turn-1'
+  }, {
+    message: {
+      id: 'implement-plan:app-turn-1',
+      role: 'assistant',
+      content: '<proposed_plan>\n# 修复计划\n</proposed_plan>',
+      planImplementation: {
+        requestId: 'implement-plan:app-turn-1',
+        turnId: 'app-turn-1',
+        planContent: '# 修复计划',
+        completed: false
+      }
     }
   });
 
@@ -111,12 +144,12 @@ test('assistant plan updates preserve plan implementation metadata', () => {
   });
 });
 
-test('interaction request payloads become non-runtime sync events with interaction details', () => {
-  const [requested] = normalizeLegacyPayloadToSyncEvents({
-    type: 'interaction-request',
+test('interaction request sync events remain non-runtime and keep interaction details', () => {
+  const requested = createSyncEvent('interaction.requested', {
     projectId: 'project-1',
     sessionId: 'session-1',
-    turnId: 'turn-1',
+    turnId: 'turn-1'
+  }, {
     interaction: {
       id: 'interaction-1',
       kind: 'user_input',
@@ -133,12 +166,12 @@ test('interaction request payloads become non-runtime sync events with interacti
   store.applyEvent(requested);
   assert.deepEqual(store.snapshot().runtimeById, {});
 
-  const [resolved] = normalizeLegacyPayloadToSyncEvents({
-    type: 'interaction-resolved',
+  const resolved = createSyncEvent('interaction.resolved', {
     sessionId: 'session-1',
     turnId: 'turn-1',
-    interactionId: 'interaction-1',
     status: 'completed'
+  }, {
+    interactionId: 'interaction-1'
   });
   assert.equal(resolved.eventType, 'interaction.resolved');
   assert.equal(resolved.interactionId, 'interaction-1');
@@ -146,8 +179,9 @@ test('interaction request payloads become non-runtime sync events with interacti
 
 test('sessions synced and rename events update sidebar projection data', () => {
   const store = createSyncStore();
-  const [synced] = normalizeLegacyPayloadToSyncEvents({
-    type: 'sync-complete',
+  const synced = createSyncEvent('sessions.synced', {
+    syncedAt: '2026-05-13T01:00:00.000Z'
+  }, {
     syncedAt: '2026-05-13T01:00:00.000Z',
     projects: [
       {
@@ -158,20 +192,19 @@ test('sessions synced and rename events update sidebar projection data', () => {
     ]
   });
   store.applyEvent(synced);
-  const [renamed] = normalizeLegacyPayloadToSyncEvents({
-    type: 'session-renamed',
+  const renamed = createSyncEvent('thread.renamed', {
     projectId: 'project-1',
-    sessionId: 'session-1',
+    sessionId: 'session-1'
+  }, {
     title: '新标题'
   });
   store.applyEvent(renamed);
   assert.equal(store.snapshot().projects[0].sessions[0].title, '新标题');
 });
 
-test('desktop thread updates without an explicit runtime status do not create running state', () => {
+test('thread updates without an explicit runtime status do not create running state', () => {
   const store = createSyncStore();
-  const [event] = normalizeLegacyPayloadToSyncEvents({
-    type: 'desktop-thread-updated',
+  const event = createSyncEvent('thread.updated', {
     source: 'desktop-ipc',
     sessionId: 'session-1'
   });
@@ -182,10 +215,13 @@ test('desktop thread updates without an explicit runtime status do not create ru
 
 test('model updates keep thread scope in sync state', () => {
   const store = createSyncStore();
-  const [event] = normalizeLegacyPayloadToSyncEvents({
-    type: 'model-settings-updated',
+  const event = createSyncEvent('model.updated', {
     source: 'desktop-thread',
     sessionId: 'session-1',
+    model: 'gpt-5.4',
+    reasoningEffort: 'medium',
+    provider: 'openai'
+  }, {
     model: 'gpt-5.4',
     reasoningEffort: 'medium',
     provider: 'openai'

@@ -26,12 +26,15 @@ function clone(value) {
 function runtimeForEvent(event) {
   return {
     status: event.status || (event.eventType === 'turn.queued' ? 'queued' : 'running'),
+    protocol: event.protocol || null,
+    appMethod: event.appMethod || null,
     source: event.source || null,
     projectId: event.projectId || null,
     sessionId: event.sessionId || null,
     previousSessionId: event.previousSessionId || null,
     turnId: event.turnId || event.clientTurnId || null,
     clientTurnId: event.clientTurnId || null,
+    appTurnId: event.appTurnId || null,
     label: event.label || null,
     detail: event.detail || null,
     startedAt: event.startedAt || event.timestamp || null,
@@ -76,10 +79,14 @@ export function createSyncStore({ maxEvents = 200 } = {}) {
         delete state.runtimeById[key];
         state.terminalById[key] = {
           status: event.status || event.eventType.split('.')[1],
+          protocol: event.protocol || null,
+          appMethod: event.appMethod || null,
           source: event.source || null,
           sessionId: event.sessionId || null,
           previousSessionId: event.previousSessionId || null,
           turnId: event.turnId || event.clientTurnId || null,
+          clientTurnId: event.clientTurnId || null,
+          appTurnId: event.appTurnId || null,
           completedAt: event.completedAt || event.timestamp || null,
           updatedAt: event.timestamp || new Date().toISOString()
         };

@@ -22,6 +22,7 @@ export function syncEventRunKeys(event = {}) {
   return [
     event.turnId,
     event.clientTurnId,
+    event.appTurnId,
     event.sessionId,
     event.previousSessionId,
     event.draftSessionId
@@ -39,12 +40,15 @@ export function isSyncRunningEvent(event = {}) {
 export function runtimeRecordForSyncEvent(event = {}) {
   return {
     status: event.status || (event.eventType === 'turn.queued' ? 'queued' : 'running'),
+    protocol: event.protocol || null,
+    appMethod: event.appMethod || null,
     source: event.source || null,
     projectId: event.projectId || null,
     sessionId: event.sessionId || null,
     previousSessionId: event.previousSessionId || null,
     turnId: event.turnId || event.clientTurnId || null,
     clientTurnId: event.clientTurnId || null,
+    appTurnId: event.appTurnId || null,
     label: event.label || null,
     detail: event.detail || null,
     startedAt: event.startedAt || event.timestamp || new Date().toISOString(),

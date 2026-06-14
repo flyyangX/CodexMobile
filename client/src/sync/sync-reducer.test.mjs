@@ -20,14 +20,17 @@ import {
 test('completed turn clears every runtime key for a mobile submitted turn', () => {
   const running = applySyncRuntimeEvent({}, {
     eventType: 'turn.running',
+    protocol: 'app-server-v2',
     source: 'desktop-ipc',
     sessionId: 'session-1',
     turnId: 'desktop-turn',
     clientTurnId: 'mobile-turn',
+    appTurnId: 'app-turn',
     timestamp: '2026-05-13T01:00:00.000Z'
   });
   assert.equal(running['session-1'].status, 'running');
   assert.equal(running['mobile-turn'].source, 'desktop-ipc');
+  assert.equal(running['app-turn'].protocol, 'app-server-v2');
 
   const completed = applySyncRuntimeEvent(running, {
     eventType: 'turn.completed',
@@ -35,6 +38,7 @@ test('completed turn clears every runtime key for a mobile submitted turn', () =
     sessionId: 'session-1',
     turnId: 'desktop-turn',
     clientTurnId: 'mobile-turn',
+    appTurnId: 'app-turn',
     timestamp: '2026-05-13T01:01:00.000Z'
   });
   assert.deepEqual(completed, {});
@@ -160,10 +164,11 @@ test('session matching accepts session, turn, client turn, previous, and draft i
     sessionId: 'session-1',
     turnId: 'turn-1',
     clientTurnId: 'client-1',
+    appTurnId: 'app-1',
     previousSessionId: 'previous-1',
     draftSessionId: 'draft-1'
   };
-  assert.deepEqual(syncEventRunKeys(event), ['turn-1', 'client-1', 'session-1', 'previous-1', 'draft-1']);
+  assert.deepEqual(syncEventRunKeys(event), ['turn-1', 'client-1', 'app-1', 'session-1', 'previous-1', 'draft-1']);
   assert.equal(sessionMatchesSyncEvent({ id: 'session-1' }, event), true);
   assert.equal(sessionMatchesSyncEvent({ turnId: 'client-1' }, event), true);
   assert.equal(sessionMatchesSyncEvent({ id: 'other' }, event), false);

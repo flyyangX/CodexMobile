@@ -437,7 +437,7 @@ test('session route handler renames sessions and broadcasts refresh events', asy
   assert.equal(await callWithBody(handler, req, res, new URL('http://local/api/projects/project-1/sessions/session-1')), true);
   assert.equal(res.statusCode, 200);
   assert.equal(JSON.parse(res.body).session.title, 'New name');
-  assert.deepEqual(broadcasts.map((payload) => payload.type), ['session-renamed', 'sync-complete']);
+  assert.deepEqual(broadcasts.map((payload) => payload.event?.eventType), ['thread.renamed', 'sessions.synced']);
 });
 
 test('voice route handler redacts API keys from speech failures', async () => {

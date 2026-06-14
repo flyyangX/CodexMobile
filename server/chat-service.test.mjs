@@ -11,6 +11,42 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createChatService } from './chat-service.js';
 
+function syncEvent(eventType, payload = {}, extra = {}) {
+  return {
+    type: 'sync-event',
+    event: {
+      id: `${eventType}-${payload.turnId || payload.sessionId || 'event'}`,
+      eventType,
+      protocol: 'codexmobile-sync',
+      source: payload.source || 'headless-local',
+      timestamp: payload.timestamp || new Date().toISOString(),
+      ...payload,
+      ...extra
+    }
+  };
+}
+
+function turnCompletedEvent(payload = {}) {
+  return syncEvent('turn.completed', { status: 'completed', ...payload });
+}
+
+function threadStartedEvent(payload = {}) {
+  return syncEvent('thread.started', { status: 'running', ...payload }, {
+    session: {
+      id: payload.sessionId,
+      cwd: payload.cwd || '/tmp/project'
+    }
+  });
+}
+
+function broadcastEvent(broadcasts, eventType) {
+  return broadcasts.find((payload) => payload.type === 'sync-event' && payload.event?.eventType === eventType);
+}
+
+function broadcastEventCount(broadcasts, eventType) {
+  return broadcasts.filter((payload) => payload.type === 'sync-event' && payload.event?.eventType === eventType).length;
+}
+
 function desktopOwnerUnavailableError() {
   const error = new Error('桌面端 Codex 已连接，但当前线程没有可接管的桌面窗口。');
   error.statusCode = 409;
@@ -83,7 +119,7 @@ test('sendChat routes running input through local headless steer', async () => {
   assert.equal(result.turnId, 'active-turn');
   assert.equal(steerPayload.identifier, 'thread-1');
   assert.match(steerPayload.payload.message, /补充这个方向/);
-  assert.equal(broadcasts.some((payload) => payload.type === 'user-message'), true);
+  assert.equal(broadcasts.some((payload) => payload.type === 'sync-event' && payload.event?.eventType === 'message.user'), true);
 });
 
 test('sendChat uses headless local even when the desktop bridge is unavailable', async () => {
@@ -97,7 +133,7 @@ test('sendChat uses headless local even when the desktop bridge is unavailable',
     }),
     runCodexTurn: async (payload, emit) => {
       runPayload = payload;
-      emit({ type: 'chat-complete', sessionId: payload.sessionId, turnId: payload.turnId });
+      emit(turnCompletedEvent({ sessionId: payload.sessionId, turnId: payload.turnId }));
       return payload.sessionId;
     }
   });
@@ -112,7 +148,7 @@ test('sendChat uses headless local even when the desktop bridge is unavailable',
   assert.equal(result.desktopBridge.mode, 'headless-local');
   assert.equal(result.desktopBridge.connected, true);
   assert.equal(runPayload.sessionId, 'thread-1');
-  assert.equal(broadcasts.some((payload) => payload.type === 'user-message'), true);
+  assert.equal(broadcasts.some((payload) => payload.type === 'sync-event' && payload.event?.eventType === 'message.user'), true);
 });
 
 test('abortChat records and broadcasts an aborted turn even after the backend run is gone', async () => {
@@ -134,9 +170,10 @@ test('abortChat records and broadcasts an aborted turn even after the backend ru
   assert.equal(abortedIdentifier, 'client-turn-1');
   assert.equal(service.getTurn('client-turn-1').status, 'aborted');
   assert.equal(service.getTurn('client-turn-1').sessionId, 'thread-1');
-  assert.equal(broadcasts.at(-1).type, 'chat-aborted');
-  assert.equal(broadcasts.at(-1).turnId, 'client-turn-1');
-  assert.equal(broadcasts.at(-1).sessionId, 'thread-1');
+  assert.equal(broadcasts.at(-1).type, 'sync-event');
+  assert.equal(broadcasts.at(-1).event.eventType, 'turn.aborted');
+  assert.equal(broadcasts.at(-1).event.turnId, 'client-turn-1');
+  assert.equal(broadcasts.at(-1).event.sessionId, 'thread-1');
 });
 
 test('compactChat calls desktop compact and broadcasts detected context state', async () => {
@@ -156,9 +193,10 @@ test('compactChat calls desktop compact and broadcasts detected context state', 
   assert.deepEqual(result, { accepted: true, sessionId: 'thread-1', result: { compacted: true } });
   assert.equal(compactedSessionId, 'thread-1');
   assert.equal(broadcasts.some((payload) =>
-    payload.type === 'context-status-update' &&
-    payload.sessionId === 'thread-1' &&
-    payload.autoCompact?.detected === true
+    payload.type === 'sync-event' &&
+    payload.event?.eventType === 'context.updated' &&
+    payload.event?.sessionId === 'thread-1' &&
+    payload.event?.context?.autoCompact?.detected === true
   ), true);
 });
 
@@ -179,20 +217,22 @@ test('compactChat broadcasts a running activity before desktop compact finishes'
   await new Promise((resolve) => setImmediate(resolve));
 
   const running = broadcasts.find((payload) =>
-    payload.type === 'activity-update' &&
-    payload.kind === 'context_compaction' &&
-    payload.status === 'running'
+    payload.type === 'sync-event' &&
+    payload.event?.eventType === 'activity.updated' &&
+    payload.event?.activity?.kind === 'context_compaction' &&
+    payload.event?.status === 'running'
   );
-  assert.equal(running?.label, '正在压缩上下文');
-  assert.equal(running?.messageId, 'compact-action-1');
+  assert.equal(running?.event.label, '正在压缩上下文');
+  assert.equal(running?.event.itemId, 'compact-action-1');
 
   resolveCompact({ compacted: true });
   await pending;
   assert.equal(broadcasts.some((payload) =>
-    payload.type === 'activity-update' &&
-    payload.messageId === running.messageId &&
-    payload.status === 'completed' &&
-    payload.label === '上下文已压缩'
+    payload.type === 'sync-event' &&
+    payload.event?.eventType === 'activity.completed' &&
+    payload.event?.itemId === running.event.itemId &&
+    payload.event?.status === 'completed' &&
+    payload.event?.label === '上下文已压缩'
   ), true);
 });
 
@@ -212,11 +252,12 @@ test('compactChat broadcasts a failed activity when desktop compact fails', asyn
   );
 
   assert.equal(broadcasts.some((payload) =>
-    payload.type === 'activity-update' &&
-    payload.kind === 'context_compaction' &&
-    payload.status === 'failed' &&
-    payload.label === '上下文压缩失败' &&
-    /desktop compact failed/.test(payload.detail)
+    payload.type === 'sync-event' &&
+    payload.event?.eventType === 'activity.failed' &&
+    payload.event?.activity?.kind === 'context_compaction' &&
+    payload.event?.status === 'failed' &&
+    payload.event?.label === '上下文压缩失败' &&
+    /desktop compact failed/.test(payload.event.detail)
   ), true);
 });
 
@@ -232,8 +273,8 @@ test('sendChat creates draft threads through headless even when desktop IPC cann
     }),
     runCodexTurn: async (payload, emit) => {
       runPayload = payload;
-      emit({ type: 'thread-started', sessionId: 'headless-thread-1', previousSessionId: payload.draftSessionId, turnId: payload.turnId });
-      emit({ type: 'chat-complete', sessionId: 'headless-thread-1', previousSessionId: payload.draftSessionId, turnId: payload.turnId });
+      emit(threadStartedEvent({ sessionId: 'headless-thread-1', previousSessionId: payload.draftSessionId, turnId: payload.turnId }));
+      emit(turnCompletedEvent({ sessionId: 'headless-thread-1', previousSessionId: payload.draftSessionId, turnId: payload.turnId }));
       return 'headless-thread-1';
     }
   });
@@ -247,7 +288,7 @@ test('sendChat creates draft threads through headless even when desktop IPC cann
   assert.equal(result.accepted, true);
   assert.equal(result.desktopBridge.mode, 'headless-local');
   assert.equal(runPayload.draftSessionId, 'draft-project-1-1');
-  assert.equal(broadcasts.some((payload) => payload.type === 'user-message'), true);
+  assert.equal(Boolean(broadcastEvent(broadcasts, 'message.user')), true);
 });
 
 test('sendChat prefers desktop IPC for existing desktop threads when the owner is available', async () => {
@@ -267,7 +308,7 @@ test('sendChat prefers desktop IPC for existing desktop threads when the owner i
     },
     runCodexTurn: async (payload, emit) => {
       runPayload = payload;
-      emit({ type: 'chat-complete', sessionId: payload.sessionId, turnId: payload.turnId });
+      emit(turnCompletedEvent({ sessionId: payload.sessionId, turnId: payload.turnId }));
       return payload.sessionId;
     }
   });
@@ -288,7 +329,7 @@ test('sendChat prefers desktop IPC for existing desktop threads when the owner i
   assert.equal(started.params.input.at(-1).text, '从手机优先交给桌面 IPC');
   assert.equal(runPayload, null);
   assert.equal(service.getTurn('client-turn-1')?.source, 'desktop-ipc');
-  assert.equal(broadcasts.some((payload) => payload.type === 'status-update' && payload.source === 'desktop-ipc'), true);
+  assert.equal(broadcasts.some((payload) => payload.event?.eventType === 'turn.running' && payload.event?.source === 'desktop-ipc'), true);
 });
 
 test('sendChat ignores desktop follower bridge for existing desktop-ipc threads', async () => {
@@ -303,7 +344,7 @@ test('sendChat ignores desktop follower bridge for existing desktop-ipc threads'
     }),
     runCodexTurn: async (payload, emit) => {
       runPayload = payload;
-      emit({ type: 'chat-complete', sessionId: payload.sessionId, turnId: payload.turnId });
+      emit(turnCompletedEvent({ sessionId: payload.sessionId, turnId: payload.turnId }));
       return payload.sessionId;
     }
   });
@@ -331,7 +372,7 @@ test('sendChat records headless runtime instead of desktop IPC handoff', async (
       capabilities: { sendToOpenDesktopThread: true, createThread: false }
     }),
     runCodexTurn: async (payload, emit) => {
-      emit({ type: 'chat-complete', sessionId: payload.sessionId, turnId: payload.turnId });
+      emit(turnCompletedEvent({ sessionId: payload.sessionId, turnId: payload.turnId }));
       return payload.sessionId;
     },
     readSessionMessages: async () => ({ messages: [] })
@@ -348,7 +389,7 @@ test('sendChat records headless runtime instead of desktop IPC handoff', async (
   assert.equal(result.desktopBridge.mode, 'headless-local');
   assert.notEqual(service.getTurn('client-turn-1')?.source, 'desktop-ipc');
   assert.equal(service.getTurn('desktop-turn-1'), null);
-  assert.equal(broadcasts.some((payload) => payload.type === 'status-update' && payload.source === 'desktop-ipc'), false);
+  assert.equal(broadcasts.some((payload) => payload.event?.eventType === 'turn.running' && payload.event?.source === 'desktop-ipc'), false);
 });
 
 test('abortChat does not interrupt desktop IPC after mobile sends', async () => {
@@ -379,7 +420,7 @@ test('abortChat does not interrupt desktop IPC after mobile sends', async () => 
 
   assert.equal(aborted, true);
   assert.equal(service.getTurn('client-turn-1').status, 'aborted');
-  assert.equal(broadcasts.filter((payload) => payload.type === 'chat-aborted' && payload.source === 'desktop-ipc').length, 0);
+  assert.equal(broadcasts.filter((payload) => payload.event?.eventType === 'turn.aborted' && payload.event?.source === 'desktop-ipc').length, 0);
 });
 
 test('abortChat no longer falls back to desktop IPC when turn id does not match', async () => {
@@ -450,9 +491,10 @@ test('abortChat aborts an active headless run before a desktop IPC monitor on th
 
   assert.equal(aborted, true);
   assert.equal(abortedIdentifier, 'headless-turn-1');
-  assert.equal(broadcasts.at(-1).type, 'chat-aborted');
-  assert.equal(broadcasts.at(-1).source, 'headless-local');
-  assert.equal(broadcasts.at(-1).turnId, 'headless-turn-1');
+  assert.equal(broadcasts.at(-1).type, 'sync-event');
+  assert.equal(broadcasts.at(-1).event.eventType, 'turn.aborted');
+  assert.equal(broadcasts.at(-1).event.source, 'headless-local');
+  assert.equal(broadcasts.at(-1).event.turnId, 'headless-turn-1');
 });
 
 test('abortChat does not interrupt desktop-origin sessions from mobile', async () => {
@@ -492,6 +534,7 @@ test('abortChat clears a headless turn by session when activeRuns has already dr
     clientTurnId: 'client-turn-session-only',
     message: '这个任务会卡住'
   });
+  await flushQueuedWork();
 
   const aborted = await service.abortChat({
     sessionId: 'thread-1'
@@ -500,8 +543,9 @@ test('abortChat clears a headless turn by session when activeRuns has already dr
   assert.equal(aborted, true);
   assert.equal(abortedIdentifier, 'client-turn-session-only');
   assert.equal(service.getTurn('client-turn-session-only').status, 'aborted');
-  assert.equal(broadcasts.at(-1).type, 'chat-aborted');
-  assert.equal(broadcasts.at(-1).turnId, 'client-turn-session-only');
+  assert.equal(broadcasts.at(-1).type, 'sync-event');
+  assert.equal(broadcasts.at(-1).event.eventType, 'turn.aborted');
+  assert.equal(broadcasts.at(-1).event.turnId, 'client-turn-session-only');
 });
 
 test('headless runner rejection emits a terminal failure and frees the next send', async () => {
@@ -512,7 +556,7 @@ test('headless runner rejection emits a terminal failure and frees the next send
       if (runCount === 1) {
         throw new Error('Request failed: 404');
       }
-      emit({ type: 'chat-complete', sessionId: payload.sessionId, turnId: payload.turnId });
+      emit(turnCompletedEvent({ sessionId: payload.sessionId, turnId: payload.turnId }));
       return payload.sessionId;
     }
   });
@@ -535,7 +579,7 @@ test('headless runner rejection emits a terminal failure and frees the next send
 
   assert.equal(first.delivery, 'started');
   assert.equal(service.getTurn('client-turn-fail').status, 'failed');
-  assert.equal(broadcasts.some((payload) => payload.type === 'chat-error' && payload.turnId === 'client-turn-fail'), true);
+  assert.equal(broadcasts.some((payload) => payload.event?.eventType === 'turn.failed' && payload.event?.turnId === 'client-turn-fail'), true);
   assert.equal(second.delivery, 'started');
   assert.equal(service.getTurn('client-turn-after-fail').status, 'completed');
 });
@@ -551,7 +595,7 @@ test('post-run cache refresh does not keep the conversation queue running', asyn
     },
     runCodexTurn: async (payload, emit) => {
       runCount += 1;
-      emit({ type: 'chat-complete', sessionId: payload.sessionId, turnId: payload.turnId });
+      emit(turnCompletedEvent({ sessionId: payload.sessionId, turnId: payload.turnId }));
       return payload.sessionId;
     },
     triggerDesktopRefreshForThread: async (threadId, options) => {
@@ -583,11 +627,11 @@ test('post-run cache refresh does not keep the conversation queue running', asyn
   assert.deepEqual(routeBounces, [
     {
       threadId: 'thread-1',
-      options: { reason: 'headless-turn-completed' }
+      options: { reason: 'headless-turn-done' }
     },
     {
       threadId: 'thread-1',
-      options: { reason: 'headless-turn-completed' }
+      options: { reason: 'headless-turn-done' }
     }
   ]);
 });
@@ -603,7 +647,7 @@ test('sendChat asks desktop to refresh after an existing headless thread complet
       capabilities: { sendToOpenDesktopThread: true, createThread: false }
     }),
     runCodexTurn: async (payload, emit) => {
-      emit({ type: 'chat-complete', sessionId: payload.sessionId, turnId: payload.turnId });
+      emit(turnCompletedEvent({ sessionId: payload.sessionId, turnId: payload.turnId }));
       return payload.sessionId;
     },
     triggerDesktopRefreshForThread: async (threadId, options) => {
@@ -624,7 +668,7 @@ test('sendChat asks desktop to refresh after an existing headless thread complet
   assert.deepEqual(routeBounces, [
     {
       threadId: 'thread-1',
-      options: { reason: 'headless-turn-completed' }
+      options: { reason: 'headless-turn-done' }
     }
   ]);
 });
@@ -641,7 +685,7 @@ test('sendChat sends plan requests through headless without desktop collaboratio
     }),
     runCodexTurn: async (payload, emit) => {
       runPayload = payload;
-      emit({ type: 'chat-complete', sessionId: payload.sessionId, turnId: payload.turnId });
+      emit(turnCompletedEvent({ sessionId: payload.sessionId, turnId: payload.turnId }));
       return payload.sessionId;
     }
   });
@@ -681,7 +725,7 @@ test('sendChat leaves desktop collaboration mode untouched for normal headless f
     }),
     runCodexTurn: async (payload, emit) => {
       runPayload = payload;
-      emit({ type: 'chat-complete', sessionId: payload.sessionId, turnId: payload.turnId });
+      emit(turnCompletedEvent({ sessionId: payload.sessionId, turnId: payload.turnId }));
       return payload.sessionId;
     }
   });
@@ -709,7 +753,7 @@ test('sendChat exits plan mode explicitly before implementing a plan', async () 
     }),
     runCodexTurn: async (payload, emit) => {
       runPayload = payload;
-      emit({ type: 'chat-complete', sessionId: payload.sessionId, turnId: payload.turnId });
+      emit(turnCompletedEvent({ sessionId: payload.sessionId, turnId: payload.turnId }));
       return payload.sessionId;
     }
   });
@@ -751,7 +795,7 @@ test('sendChat implements proposed plans through headless with full plan content
     }),
     runCodexTurn: async (payload, emit) => {
       runPayload = payload;
-      emit({ type: 'chat-complete', sessionId: payload.sessionId, turnId: payload.turnId });
+      emit(turnCompletedEvent({ sessionId: payload.sessionId, turnId: payload.turnId }));
       return payload.sessionId;
     }
   });
@@ -770,8 +814,8 @@ test('sendChat implements proposed plans through headless with full plan content
 
   assert.equal(result.delivery, 'started');
   assert.equal(result.desktopBridge.mode, 'headless-local');
-  assert.equal(broadcasts.filter((payload) => payload.type === 'user-message').length, 1);
-  assert.equal(broadcasts.some((payload) => payload.type === 'status-update' && payload.source === 'desktop-ipc'), false);
+  assert.equal(broadcastEventCount(broadcasts, 'message.user'), 1);
+  assert.equal(broadcasts.some((payload) => payload.event?.eventType === 'turn.running' && payload.event?.source === 'desktop-ipc'), false);
   assert.match(runPayload.message, /^PLEASE IMPLEMENT THIS PLAN:/);
   assert.match(runPayload.message, /处理计划执行失败/);
 });
@@ -792,7 +836,7 @@ test('sendChat uses headless local directly for existing desktop-ipc threads', a
     }),
     runCodexTurn: async (payload, emit) => {
       runPayload = payload;
-      emit({ type: 'chat-complete', sessionId: payload.sessionId, turnId: payload.turnId });
+      emit(turnCompletedEvent({ sessionId: payload.sessionId, turnId: payload.turnId }));
       return payload.sessionId;
     }
   });
@@ -809,7 +853,7 @@ test('sendChat uses headless local directly for existing desktop-ipc threads', a
   assert.equal(result.desktopBridge.mode, 'headless-local');
   assert.equal(runPayload.sessionId, 'thread-1');
   assert.match(runPayload.message, /移动端发送只走后台/);
-  assert.equal(broadcasts.filter((payload) => payload.type === 'user-message').length, 1);
+  assert.equal(broadcastEventCount(broadcasts, 'message.user'), 1);
 });
 
 test('sendChat does not push mobile model settings into desktop IPC before start', async () => {
@@ -826,7 +870,7 @@ test('sendChat does not push mobile model settings into desktop IPC before start
       }
     }),
     runCodexTurn: async (payload, emit) => {
-      emit({ type: 'chat-complete', sessionId: payload.sessionId, turnId: payload.turnId });
+      emit(turnCompletedEvent({ sessionId: payload.sessionId, turnId: payload.turnId }));
       return payload.sessionId;
     }
   });
@@ -860,7 +904,7 @@ test('sendChat does not call desktop start turn when desktop IPC would time out'
     }),
     runCodexTurn: async (payload, emit) => {
       runPayload = payload;
-      emit({ type: 'chat-complete', sessionId: payload.sessionId, turnId: payload.turnId });
+      emit(turnCompletedEvent({ sessionId: payload.sessionId, turnId: payload.turnId }));
       return payload.sessionId;
     }
   });
@@ -894,7 +938,7 @@ test('sendChat does not wait for a desktop-ipc owner before using headless local
     }),
     runCodexTurn: async (payload, emit) => {
       runPayload = payload;
-      emit({ type: 'chat-complete', sessionId: payload.sessionId, turnId: payload.turnId });
+      emit(turnCompletedEvent({ sessionId: payload.sessionId, turnId: payload.turnId }));
       return payload.sessionId;
     }
   });
@@ -928,8 +972,8 @@ test('sendChat can create a background thread when desktop-ipc cannot create des
     }),
     runCodexTurn: async (payload, emit) => {
       runPayload = payload;
-      emit({ type: 'thread-started', sessionId: 'background-thread-1', previousSessionId: payload.draftSessionId, turnId: payload.turnId });
-      emit({ type: 'chat-complete', sessionId: 'background-thread-1', previousSessionId: payload.draftSessionId, turnId: payload.turnId });
+      emit(threadStartedEvent({ sessionId: 'background-thread-1', previousSessionId: payload.draftSessionId, turnId: payload.turnId }));
+      emit(turnCompletedEvent({ sessionId: 'background-thread-1', previousSessionId: payload.draftSessionId, turnId: payload.turnId }));
       return 'background-thread-1';
     }
   });
@@ -965,19 +1009,17 @@ test('sendChat asks desktop to hot-refresh after a background thread is created'
       }
     }),
     runCodexTurn: async (payload, emit) => {
-      emit({
-        type: 'thread-started',
+      emit(threadStartedEvent({
         sessionId: 'background-thread-1',
         previousSessionId: payload.draftSessionId,
         turnId: payload.turnId,
         cwd: '/tmp/project'
-      });
-      emit({
-        type: 'chat-complete',
+      }));
+      emit(turnCompletedEvent({
         sessionId: 'background-thread-1',
         previousSessionId: payload.draftSessionId,
         turnId: payload.turnId
-      });
+      }));
       return 'background-thread-1';
     },
     notifyDesktopThreadListChanged: async (payload) => {
@@ -1002,18 +1044,18 @@ test('sendChat asks desktop to hot-refresh after a background thread is created'
     {
       threadId: 'background-thread-1',
       cwd: '/tmp/project',
-      reason: 'background-thread-started'
+      reason: 'background-thread-created'
     },
     {
       threadId: 'background-thread-1',
       cwd: '/tmp/project',
-      reason: 'background-thread-completed'
+      reason: 'background-thread-done'
     }
   ]);
   assert.deepEqual(routeBounces, [
     {
       threadId: 'background-thread-1',
-      options: { reason: 'background-thread-completed' }
+      options: { reason: 'background-thread-done' }
     }
   ]);
 });
@@ -1035,18 +1077,16 @@ test('sendChat reuses a background-created thread alias for later headless sends
     }),
     runCodexTurn: async (payload, emit) => {
       runPayloads.push(payload);
-      emit({
-        type: 'thread-started',
+      emit(threadStartedEvent({
         sessionId: 'background-thread-1',
         previousSessionId: payload.draftSessionId,
         turnId: payload.turnId
-      });
-      emit({
-        type: 'chat-complete',
+      }));
+      emit(turnCompletedEvent({
         sessionId: 'background-thread-1',
         previousSessionId: payload.draftSessionId,
         turnId: payload.turnId
-      });
+      }));
       return 'background-thread-1';
     }
   });
@@ -1099,19 +1139,17 @@ test('sendChat registers new projectless background threads for mobile and deskt
     }),
     runCodexTurn: async (payload, emit) => {
       runPayload = payload;
-      emit({
-        type: 'thread-started',
+      emit(threadStartedEvent({
         sessionId: 'projectless-thread-1',
         previousSessionId: payload.draftSessionId,
         turnId: payload.turnId,
         startedAt: '2026-05-07T08:00:00.000Z'
-      });
-      emit({
-        type: 'chat-complete',
+      }));
+      emit(turnCompletedEvent({
         sessionId: 'projectless-thread-1',
         previousSessionId: payload.draftSessionId,
         turnId: payload.turnId
-      });
+      }));
       return 'projectless-thread-1';
     },
     registerProjectlessThread: async (threadId, workspaceRoot) => {
@@ -1150,7 +1188,7 @@ test('sendChat registers new projectless background threads for mobile and deskt
 test('sendChat remembers a started background thread path before broadcasting it', async () => {
   const events = [];
   const { service } = makeChatService({
-    broadcast: (payload) => events.push(`broadcast:${payload.type}`),
+    broadcast: (payload) => events.push(`broadcast:${payload.event?.eventType || payload.type}`),
     rememberLiveSession: (session) => events.push(`remember:${session.id}:${session.filePath}`),
     getDesktopBridgeStatus: async () => ({
       strict: true,
@@ -1165,20 +1203,18 @@ test('sendChat remembers a started background thread path before broadcasting it
       }
     }),
     runCodexTurn: async (payload, emit) => {
-      emit({
-        type: 'thread-started',
+      emit(threadStartedEvent({
         sessionId: 'background-thread-1',
         previousSessionId: payload.draftSessionId,
         turnId: payload.turnId,
         filePath: '/tmp/background-rollout.jsonl',
         startedAt: '2026-05-07T08:00:00.000Z'
-      });
-      emit({
-        type: 'chat-complete',
+      }));
+      emit(turnCompletedEvent({
         sessionId: 'background-thread-1',
         previousSessionId: payload.draftSessionId,
         turnId: payload.turnId
-      });
+      }));
       return 'background-thread-1';
     }
   });
@@ -1192,7 +1228,7 @@ test('sendChat remembers a started background thread path before broadcasting it
   await flushQueuedWork();
 
   const rememberedIndex = events.findIndex((event) => event === 'remember:background-thread-1:/tmp/background-rollout.jsonl');
-  const broadcastIndex = events.findIndex((event) => event === 'broadcast:thread-started');
+  const broadcastIndex = events.findIndex((event) => event === 'broadcast:thread.started');
   assert.ok(rememberedIndex >= 0);
   assert.ok(broadcastIndex > rememberedIndex);
 });
@@ -1210,20 +1246,18 @@ test('sendChat starts project-bound draft threads in the selected project cwd', 
     }),
     runCodexTurn: async (payload, emit) => {
       runPayload = payload;
-      emit({
-        type: 'thread-started',
+      emit(threadStartedEvent({
         sessionId: 'project-thread-1',
         previousSessionId: payload.draftSessionId,
         turnId: payload.turnId,
         cwd: payload.projectPath,
         startedAt: '2026-05-14T12:00:00.000Z'
-      });
-      emit({
-        type: 'chat-complete',
+      }));
+      emit(turnCompletedEvent({
         sessionId: 'project-thread-1',
         previousSessionId: payload.draftSessionId,
         turnId: payload.turnId
-      });
+      }));
       return 'project-thread-1';
     },
     registerProjectlessThread: async () => {
@@ -1260,8 +1294,8 @@ test('sendChat starts a headless local Codex turn when desktop bridge is in head
     }),
     runCodexTurn: async (payload, emit) => {
       runPayload = payload;
-      emit({ type: 'thread-started', sessionId: 'headless-thread-1', previousSessionId: payload.draftSessionId, turnId: payload.turnId });
-      emit({ type: 'chat-complete', sessionId: 'headless-thread-1', previousSessionId: payload.draftSessionId, turnId: payload.turnId });
+      emit(threadStartedEvent({ sessionId: 'headless-thread-1', previousSessionId: payload.draftSessionId, turnId: payload.turnId }));
+      emit(turnCompletedEvent({ sessionId: 'headless-thread-1', previousSessionId: payload.draftSessionId, turnId: payload.turnId }));
       return 'headless-thread-1';
     }
   });
@@ -1278,9 +1312,9 @@ test('sendChat starts a headless local Codex turn when desktop bridge is in head
   assert.equal(result.desktopBridge.mode, 'headless-local');
   assert.equal(runPayload.draftSessionId, 'draft-project-1-1');
   assert.match(runPayload.message, /桌面端没开也跑一下/);
-  assert.equal(broadcasts.some((payload) => payload.type === 'user-message'), true);
-  assert.equal(broadcasts.find((payload) => payload.type === 'thread-started')?.source, 'headless-local');
-  assert.equal(broadcasts.find((payload) => payload.type === 'chat-complete')?.source, 'headless-local');
+  assert.equal(Boolean(broadcastEvent(broadcasts, 'message.user')), true);
+  assert.equal(broadcastEvent(broadcasts, 'thread.started')?.event.source, 'headless-local');
+  assert.equal(broadcastEvent(broadcasts, 'turn.completed')?.event.source, 'headless-local');
 });
 
 test('sendChat passes plan collaboration mode to headless local Codex turns', async () => {
@@ -1295,8 +1329,8 @@ test('sendChat passes plan collaboration mode to headless local Codex turns', as
     }),
     runCodexTurn: async (payload, emit) => {
       runPayload = payload;
-      emit({ type: 'thread-started', sessionId: 'headless-plan-thread-1', previousSessionId: payload.draftSessionId, turnId: payload.turnId });
-      emit({ type: 'chat-complete', sessionId: 'headless-plan-thread-1', previousSessionId: payload.draftSessionId, turnId: payload.turnId });
+      emit(threadStartedEvent({ sessionId: 'headless-plan-thread-1', previousSessionId: payload.draftSessionId, turnId: payload.turnId }));
+      emit(turnCompletedEvent({ sessionId: 'headless-plan-thread-1', previousSessionId: payload.draftSessionId, turnId: payload.turnId }));
       return 'headless-plan-thread-1';
     }
   });
@@ -1413,7 +1447,7 @@ test('file mentions are appended to normal chat sends', async () => {
     }),
     runCodexTurn: async (payload, emit) => {
       runPayload = payload;
-      emit({ type: 'chat-complete', sessionId: payload.sessionId, turnId: payload.turnId });
+      emit(turnCompletedEvent({ sessionId: payload.sessionId, turnId: payload.turnId }));
       return payload.sessionId;
     }
   });

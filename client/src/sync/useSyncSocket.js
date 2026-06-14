@@ -43,6 +43,7 @@ function syncEventPayloadForLegacy(event = {}) {
     draftSessionId: event.draftSessionId || null,
     turnId: event.turnId || event.clientTurnId || null,
     clientTurnId: event.clientTurnId || null,
+    appTurnId: event.appTurnId || null,
     status: event.status || null,
     label: event.label || null,
     detail: event.detail || null,

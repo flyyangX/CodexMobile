@@ -98,12 +98,24 @@ test('push service sends notifications and removes gone subscriptions', async ()
 });
 
 test('notificationFromServerPayload maps completion, failure, and user-input events', () => {
-  assert.deepEqual(notificationFromServerPayload({ type: 'chat-complete' }), {
+  assert.deepEqual(notificationFromServerPayload({ type: 'sync-event', event: { eventType: 'turn.completed' } }), {
     level: 'success',
     title: '任务已完成',
     body: 'Codex 已处理完当前任务。'
   });
-  assert.equal(notificationFromServerPayload({ type: 'status-update', label: '等待用户确认权限' }).title, '需要处理');
-  assert.equal(notificationFromServerPayload({ type: 'activity-update', label: '正在同步回复' }), null);
-  assert.equal(notificationFromServerPayload({ type: 'chat-error', error: 'boom' }).body, 'boom');
+  assert.equal(
+    notificationFromServerPayload({
+      type: 'sync-event',
+      event: { eventType: 'interaction.requested', label: '等待用户确认权限' }
+    }).title,
+    '需要处理'
+  );
+  assert.equal(
+    notificationFromServerPayload({
+      type: 'sync-event',
+      event: { eventType: 'activity.updated', activity: { label: '正在同步回复' } }
+    }),
+    null
+  );
+  assert.equal(notificationFromServerPayload({ type: 'sync-event', event: { eventType: 'turn.failed', detail: 'boom' } }).body, 'boom');
 });

@@ -24,6 +24,7 @@ import { buildCodexLarkCliContext } from './lark-cli.js';
 import { detectFeishuSkillKeys } from './feishu-skills.js';
 import { codexSandboxForPermissionMode, desktopSandboxPolicyForPermissionMode } from './permission-policy.js';
 import { readSecurityOptions } from './security-options.js';
+import { createSyncEventPayload } from './sync/sync-events.js';
 
 const activeRuns = new Map();
 const NON_ASCII_PATH_PATTERN = /[^\u0000-\u007F]/;
@@ -305,8 +306,16 @@ function emitStatus(emit, {
   durationMs = null,
   timestamp = null
 }) {
-  emit({
-    type: 'status-update',
+  const eventType = status === 'queued'
+    ? 'turn.queued'
+    : status === 'completed'
+      ? 'turn.completed'
+      : status === 'failed'
+        ? 'turn.failed'
+        : status === 'aborted'
+          ? 'turn.aborted'
+          : 'turn.running';
+  emit(createSyncEventPayload(eventType, {
     sessionId,
     turnId,
     kind,
@@ -317,7 +326,7 @@ function emitStatus(emit, {
     startedAt,
     completedAt,
     durationMs
-  });
+  }));
 }
 
 function positiveNumber(value) {
@@ -332,8 +341,7 @@ function emitContextStatus(emit, { sessionId, turnId, state, timestamp = new Dat
     inputTokens && contextWindow
       ? Math.max(0, Math.min(100, Math.round((inputTokens / contextWindow) * 1000) / 10))
       : null;
-  emit({
-    type: 'context-status-update',
+  emit(createSyncEventPayload('context.updated', {
     sessionId,
     turnId,
     inputTokens,
@@ -349,7 +357,22 @@ function emitContextStatus(emit, { sessionId, turnId, state, timestamp = new Dat
       lastCompactedAt: state.autoCompactLastAt || null,
       reason: state.autoCompactReason || ''
     }
-  });
+  }, {
+    context: {
+      inputTokens,
+      totalTokens: state.totalTokens || null,
+      contextWindow,
+      percent,
+      lastTokenUsage: state.lastTokenUsage || null,
+      totalTokenUsage: state.totalTokenUsage || null,
+      autoCompact: {
+        detected: Boolean(state.autoCompactDetected),
+        status: state.autoCompactDetected ? 'detected' : 'watching',
+        lastCompactedAt: state.autoCompactLastAt || null,
+        reason: state.autoCompactReason || ''
+      }
+    }
+  }));
 }
 
 function applyTokenCountToContextState(contextState, payload, timestamp) {
@@ -421,11 +444,12 @@ function emitActivity(emit, { sessionId, turnId, messageId, item, kind, status }
       completed: Boolean(item?.isCompleted || item?.completed || status === 'completed')
     }
     : null;
-  emit({
-    type: 'activity-update',
-    sessionId,
-    turnId,
-    messageId,
+  const eventType = status === 'completed'
+    ? 'activity.completed'
+    : status === 'failed'
+      ? 'activity.failed'
+      : 'activity.updated';
+  const activity = {
     kind,
     label: statusLabel(kind, status),
     status,
@@ -436,9 +460,27 @@ function emitActivity(emit, { sessionId, turnId, messageId, item, kind, status }
     fileChanges: normalizeFileChanges(item),
     planImplementation,
     toolName: item?.tool || item?.name || '',
-    error: item?.error?.message || item?.message || '',
+    error: item?.error?.message || item?.message || ''
+  };
+  emit(createSyncEventPayload(eventType, {
+    sessionId,
+    turnId,
+    messageId,
+    kind,
+    label: activity.label,
+    status,
+    detail,
+    planImplementation,
     timestamp: new Date().toISOString()
-  });
+  }, {
+    activity,
+    command: activity.command,
+    output: activity.output,
+    exitCode: activity.exitCode,
+    fileChanges: activity.fileChanges,
+    toolName: activity.toolName,
+    error: activity.error
+  }));
 }
 
 function sandboxPolicyFromPermissionMode(permissionMode, { networkAccess = false } = {}) {
@@ -528,8 +570,7 @@ function emitNativeImageResult(emit, { sessionId, turnId, messageId, item, statu
   if (!content) {
     return false;
   }
-  emit({
-    type: 'assistant-update',
+  emit(createSyncEventPayload('message.assistant.completed', {
     sessionId,
     turnId,
     messageId: `${messageId}-result`,
@@ -539,7 +580,18 @@ function emitNativeImageResult(emit, { sessionId, turnId, messageId, item, statu
     content,
     status: 'completed',
     done: true
-  });
+  }, {
+    message: {
+      id: `${messageId}-result`,
+      role: 'assistant',
+      content,
+      timestamp: new Date().toISOString(),
+      sessionId,
+      turnId,
+      done: true,
+      phase: 'final_answer'
+    }
+  }));
   state.hadAssistantText = true;
   return true;
 }
@@ -552,26 +604,6 @@ export function appServerAgentMessagePhase(params = {}, state = {}, messageId = 
   const itemId = messageId || params.itemId || params.item?.id || '';
   const knownItem = itemId && state.items?.get ? state.items.get(itemId) : null;
   return String(knownItem?.phase || '').trim().toLowerCase();
-}
-
-function emitAgentMessageActivity(emit, { sessionId, turnId, messageId, content, status = 'running' }) {
-  const text = String(content || '').trim();
-  if (!text) {
-    return;
-  }
-  emit({
-    type: 'activity-update',
-    sessionId,
-    turnId,
-    messageId,
-    itemId: messageId,
-    kind: 'agent_message',
-    phase: 'commentary',
-    label: text,
-    content: text,
-    status,
-    timestamp: new Date().toISOString()
-  });
 }
 
 function tokenUsagePayload(tokenUsage = {}) {
@@ -618,28 +650,6 @@ function emitAppServerItem({ method, params }, sessionId, turnId, emit, state) {
       return;
     }
     const isCommentary = rawItem.phase === 'commentary';
-    if (isCommentary) {
-      emitAgentMessageActivity(emit, {
-        sessionId,
-        turnId,
-        messageId,
-        content,
-        status
-      });
-      return;
-    }
-    emit({
-      type: 'assistant-update',
-      sessionId,
-      turnId,
-      messageId,
-      role: 'assistant',
-      kind: 'agent_message',
-      phase: isCommentary ? 'commentary' : 'final_answer',
-      content,
-      status,
-      done: !isCommentary && status === 'completed'
-    });
     if (!isCommentary) {
       state.hadAssistantText = true;
       if (shouldCompleteTurnFromAppServerItem(method, rawItem, content)) {
@@ -653,7 +663,6 @@ function emitAppServerItem({ method, params }, sessionId, turnId, emit, state) {
   }
 
   if (rawItem.type === 'reasoning') {
-    emitStatus(emit, { sessionId, turnId, kind: 'reasoning', status, label: statusLabel('reasoning', status) });
     return;
   }
 
@@ -665,21 +674,6 @@ function emitAppServerItem({ method, params }, sessionId, turnId, emit, state) {
     emitContextStatus(emit, { sessionId, turnId, state: state.context, timestamp });
   }
 
-  emitStatus(emit, {
-    sessionId,
-    turnId,
-    kind: item.type,
-    status,
-    detail: detailFromItem(item)
-  });
-  emitActivity(emit, {
-    sessionId,
-    turnId,
-    messageId,
-    item,
-    kind: item.type,
-    status
-  });
   if (rawItem.type === 'imageGeneration') {
     emitNativeImageResult(emit, { sessionId, turnId, messageId, item: rawItem, status, state });
   }
@@ -689,7 +683,6 @@ function emitAppServerNotification(message, sessionId, turnId, emit, state) {
   const { method, params = {} } = message;
 
   if (method === 'turn/started') {
-    emitStatus(emit, { sessionId, turnId, kind: 'reasoning', status: 'running', label: '正在思考' });
     return;
   }
 
@@ -706,8 +699,7 @@ function emitAppServerNotification(message, sessionId, turnId, emit, state) {
     state.context.autoCompactLastAt = timestamp;
     state.context.autoCompactReason = '上下文已自动压缩';
     emitContextStatus(emit, { sessionId, turnId, state: state.context, timestamp });
-    emit({
-      type: 'activity-update',
+    emit(createSyncEventPayload('activity.completed', {
       sessionId,
       turnId,
       messageId: `${turnId}-context-compaction-${Date.now()}`,
@@ -716,7 +708,14 @@ function emitAppServerNotification(message, sessionId, turnId, emit, state) {
       status: 'completed',
       detail: '',
       timestamp
-    });
+    }, {
+      activity: {
+        kind: 'context_compaction',
+        label: '上下文已自动压缩',
+        status: 'completed',
+        detail: ''
+      }
+    }));
     return;
   }
 
@@ -725,31 +724,9 @@ function emitAppServerNotification(message, sessionId, turnId, emit, state) {
     const previous = state.agentMessages.get(messageId) || '';
     const content = `${previous}${params.delta || ''}`;
     state.agentMessages.set(messageId, content);
-    if (content.trim()) {
-      const phase = appServerAgentMessagePhase(params, state, messageId);
-      if (phase === 'commentary') {
-        emitAgentMessageActivity(emit, {
-          sessionId,
-          turnId,
-          messageId,
-          content,
-          status: 'running'
-        });
-        return;
-      }
+    const phase = appServerAgentMessagePhase(params, state, messageId);
+    if (content.trim() && phase !== 'commentary') {
       state.hadAssistantText = true;
-      emit({
-        type: 'assistant-update',
-        sessionId,
-        turnId,
-        messageId,
-        role: 'assistant',
-        kind: 'agent_message',
-        phase: 'final_answer',
-        content,
-        status: 'running',
-        done: false
-      });
     }
     return;
   }
@@ -795,11 +772,7 @@ function emitAppServerNotification(message, sessionId, turnId, emit, state) {
   }
 
   if (method === 'error' && !params.willRetry) {
-    const error = errorTextFromNotification(params);
     state.failed = true;
-    emitStatus(emit, { sessionId, turnId, kind: 'turn', status: 'failed', label: '任务失败', detail: error });
-    emit({ type: 'turn-failed', sessionId, turnId, error });
-    emit({ type: 'chat-error', sessionId, turnId, error });
   }
 }
 
@@ -812,8 +785,7 @@ function emitPlanImplementationRequest(message, sessionId, turnId, emit) {
   const content = /<proposed_plan\b/i.test(planContent)
     ? planContent
     : `<proposed_plan>\n${planContent}\n</proposed_plan>`;
-  emit({
-    type: 'assistant-update',
+  emit(createSyncEventPayload('message.assistant.completed', {
     sessionId: requestThreadId || sessionId,
     turnId,
     messageId: requestId || `${turnId}-plan-implementation`,
@@ -830,7 +802,24 @@ function emitPlanImplementationRequest(message, sessionId, turnId, emit) {
       planContent,
       completed: false
     }
-  });
+  }, {
+    message: {
+      id: requestId || `${turnId}-plan-implementation`,
+      role: 'assistant',
+      content,
+      timestamp: new Date().toISOString(),
+      sessionId: requestThreadId || sessionId,
+      turnId,
+      done: true,
+      phase: 'final_answer',
+      planImplementation: {
+        requestId: requestId || (requestTurnId ? `implement-plan:${requestTurnId}` : ''),
+        turnId: requestTurnId || turnId,
+        planContent,
+        completed: false
+      }
+    }
+  }));
 }
 
 function abortError() {
@@ -863,6 +852,7 @@ export async function runCodexTurn({ sessionId, draftSessionId, projectPath, mes
     items: new Map(),
     fallbackCompletionTimer: null,
     turnCompletionResolved: false,
+    sawAppTurnCompleted: false,
     scheduleFallbackTurnCompletion: null
   };
   const run = {
@@ -903,6 +893,24 @@ export async function runCodexTurn({ sessionId, draftSessionId, projectPath, mes
       state.fallbackCompletionTimer.unref();
     }
   };
+  function emitAppServerSync(appMessage) {
+    emit({
+      type: 'app-server-message',
+      appMessage,
+      context: {
+        source: 'headless-local',
+        sessionId: currentSessionId || sessionId || draftSessionId || '',
+        previousSessionId,
+        draftSessionId,
+        turnId,
+        clientTurnId: turnId,
+        appTurnId: run.appTurnId || null,
+        startedAt: run.startedAt,
+        agentMessages: state.agentMessages,
+        items: state.items
+      }
+    });
+  }
   const abortPromise = new Promise((_, reject) => {
     abortController.signal.addEventListener('abort', () => reject(abortError()), { once: true });
   });
@@ -933,6 +941,9 @@ export async function runCodexTurn({ sessionId, draftSessionId, projectPath, mes
       },
       onServerRequest: async (appMessage) => {
         resetTurnInactivityTimeout();
+        if (INTERACTIVE_SERVER_REQUEST_METHODS.has(appMessage?.method)) {
+          emitAppServerSync(appMessage);
+        }
         if (appMessage?.method === 'item/plan/requestImplementation') {
           emitPlanImplementationRequest(appMessage, currentSessionId || sessionId || draftSessionId, turnId, emit);
         }
@@ -956,16 +967,7 @@ export async function runCodexTurn({ sessionId, draftSessionId, projectPath, mes
           currentSessionId = params.thread.id;
           run.sessionId = currentSessionId;
           run.previousSessionId = fromSessionId;
-          emit({
-            type: 'thread-started',
-            sessionId: currentSessionId,
-            previousSessionId: fromSessionId,
-            turnId,
-            projectPath,
-            cwd: params.thread.cwd || workingDirectory,
-            filePath: params.thread.path || params.thread.filePath || null,
-            startedAt: new Date().toISOString()
-          });
+          emitAppServerSync(appMessage);
           return;
         }
         if (appMessage.method === 'turn/started' && params.turn?.id) {
@@ -974,23 +976,11 @@ export async function runCodexTurn({ sessionId, draftSessionId, projectPath, mes
         if (params.threadId && currentSessionId && params.threadId !== currentSessionId) {
           return;
         }
+        emitAppServerSync(appMessage);
         emitAppServerNotification(appMessage, currentSessionId || sessionId || draftSessionId, turnId, emit, state);
         if (appMessage.method === 'turn/completed') {
+          state.sawAppTurnCompleted = true;
           state.usage = params.turn || null;
-          const timing = turnTimingPayload(state.usage, {
-            fallbackStartedAt: run.startedAt,
-            fallbackCompletedAt: new Date().toISOString()
-          });
-          emitStatus(emit, {
-            sessionId: currentSessionId,
-            turnId,
-            kind: 'turn',
-            status: 'completed',
-            label: '任务已完成',
-            ...timing,
-            timestamp: timing.completedAt
-          });
-          emit({ type: 'turn-complete', sessionId: currentSessionId, turnId, usage: state.usage, ...timing });
           resolveTurnCompletion(params.turn || {});
         } else if (appMessage.method === 'error' && !params.willRetry) {
           completionReject(new Error(errorTextFromNotification(params)));
@@ -1017,16 +1007,6 @@ export async function runCodexTurn({ sessionId, draftSessionId, projectPath, mes
     run.thread = desktopThread;
     run.client = client;
     run.sessionId = currentSessionId;
-    emit({
-      type: 'chat-started',
-      sessionId: currentSessionId,
-      previousSessionId,
-      turnId,
-      projectPath,
-      cwd: desktopThread.cwd || workingDirectory,
-      filePath: desktopThread.path || desktopThread.filePath || null,
-      startedAt: new Date().toISOString()
-    });
     emitStatus(emit, { sessionId: currentSessionId, turnId, kind: 'reasoning', status: 'running', label: '正在思考' });
 
     const turnStartParams = {
@@ -1088,13 +1068,12 @@ export async function runCodexTurn({ sessionId, draftSessionId, projectPath, mes
       })
     ]);
 
-    if (!state.failed) {
+    if (!state.failed && !state.sawAppTurnCompleted) {
       const timing = turnTimingPayload(state.usage, {
         fallbackStartedAt: run.startedAt,
         fallbackCompletedAt: new Date().toISOString()
       });
-      emit({
-        type: 'chat-complete',
+      emit(createSyncEventPayload('turn.completed', {
         sessionId: currentSessionId,
         previousSessionId,
         turnId,
@@ -1102,7 +1081,11 @@ export async function runCodexTurn({ sessionId, draftSessionId, projectPath, mes
         context: state.context,
         hadAssistantText: state.hadAssistantText,
         ...timing
-      });
+      }, {
+        usage: state.usage,
+        context: state.context,
+        hadAssistantText: state.hadAssistantText
+      }));
     }
   } catch (error) {
     const timedOut = isTurnTimeoutError(error);
@@ -1128,12 +1111,14 @@ export async function runCodexTurn({ sessionId, draftSessionId, projectPath, mes
         ? `任务超过 ${formatTimeoutDuration(TURN_INACTIVITY_TIMEOUT_MS)} 没有任何进度，已自动中止。可以重新发送一次。`
       : userFacingCodexError(error);
 
-    emit({
-      type: wasAborted ? 'chat-aborted' : 'chat-error',
+    emit(createSyncEventPayload(wasAborted ? 'turn.aborted' : 'turn.failed', {
       sessionId: currentSessionId,
       turnId,
-      error: wasAborted ? null : userError
-    });
+      error: wasAborted ? null : userError,
+      detail: wasAborted ? '' : userError,
+      status: wasAborted ? 'aborted' : 'failed',
+      completedAt: new Date().toISOString()
+    }));
     if (!wasAborted) {
       console.error('[codex] Chat error:', codexErrorDiagnostics(error));
       emitStatus(emit, {

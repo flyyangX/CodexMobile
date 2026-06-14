@@ -162,10 +162,11 @@ test('desktop ipc active runs expose both app and client turn ids', () => {
       source: 'desktop-ipc',
       turnId: 'desktop-turn-1',
       clientTurnId: 'client-turn-1',
+      appTurnId: 'app-turn-1',
       sessionId: 'thread-1',
       previousSessionId: 'thread-1'
     }),
-    ['desktop-turn-1', 'client-turn-1', 'thread-1', 'thread-1']
+    ['desktop-turn-1', 'client-turn-1', 'app-turn-1', 'thread-1', 'thread-1']
   );
 });
 
@@ -341,7 +342,7 @@ test('session runtime reconciliation clears stale desktop runtime for loaded ses
 test('completed turn payload maps back to the selected sidebar session', () => {
   const session = { id: 'thread-3', projectId: 'projectA', turnId: 'turn-3' };
   const keys = runtimeKeysForPayload(
-    { type: 'status-update', kind: 'turn', status: 'completed', turnId: 'turn-3' },
+    { eventType: 'turn.completed', status: 'completed', turnId: 'turn-3' },
     session
   );
 

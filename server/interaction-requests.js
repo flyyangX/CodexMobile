@@ -12,6 +12,7 @@
  *
  * 不负责: React UI 渲染。
  */
+import { createSyncEventPayload } from './sync/sync-events.js';
 
 const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
 
@@ -380,15 +381,16 @@ export function createInteractionBroker({ broadcast = () => null, timeoutMs = DE
       ? appServerResultForResponse(entry.interaction, response)
       : conservativeResult(entry.interaction);
     entry.resolve(result);
-    broadcast({
-      type: 'interaction-resolved',
+    broadcast(createSyncEventPayload('interaction.resolved', {
       interactionId: key,
       projectId: entry.interaction.projectId,
       sessionId: entry.interaction.sessionId,
       turnId: entry.interaction.turnId,
       status,
       timestamp: nowIso()
-    });
+    }, {
+      interactionId: key
+    }));
     return { success: true, interactionId: key, result, status };
   }
 
@@ -402,22 +404,22 @@ export function createInteractionBroker({ broadcast = () => null, timeoutMs = DE
         pending.delete(interaction.id);
         const result = conservativeResult(interaction);
         resolve(result);
-        broadcast({
-          type: 'interaction-resolved',
+        broadcast(createSyncEventPayload('interaction.resolved', {
           interactionId: interaction.id,
           projectId: interaction.projectId,
           sessionId: interaction.sessionId,
           turnId: interaction.turnId,
           status: 'timeout',
           timestamp: nowIso()
-        });
+        }, {
+          interactionId: interaction.id
+        }));
       }, timeoutMs);
       if (typeof timeout.unref === 'function') {
         timeout.unref();
       }
       pending.set(interaction.id, { interaction, resolve, timeout });
-      broadcast({
-        type: 'interaction-request',
+      broadcast(createSyncEventPayload('interaction.requested', {
         projectId: interaction.projectId,
         sessionId: interaction.sessionId,
         turnId: interaction.turnId,
@@ -425,7 +427,9 @@ export function createInteractionBroker({ broadcast = () => null, timeoutMs = DE
         detail: interaction.prompt || '',
         interaction,
         timestamp: interaction.createdAt
-      });
+      }, {
+        interaction
+      }));
     });
   }
 

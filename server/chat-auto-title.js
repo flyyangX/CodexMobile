@@ -12,6 +12,8 @@
  *
  * 不负责: 直接调用 OpenAI（交给 session-title-generator）。
  */
+import { createSyncEventPayload } from './sync/sync-events.js';
+
 export function createChatAutoNamer({
   getTurn,
   refreshCodexCache,
@@ -45,7 +47,14 @@ export function createChatAutoNamer({
     });
     if (renamed) {
       const snapshot = await refreshCodexCache();
-      broadcast({ type: 'sync-complete', syncedAt: snapshot.syncedAt, projects: snapshot.projects });
+      broadcast(createSyncEventPayload('sessions.synced', {
+        source: 'auto-title',
+        syncedAt: snapshot.syncedAt,
+        projects: snapshot.projects
+      }, {
+        syncedAt: snapshot.syncedAt,
+        projects: snapshot.projects
+      }));
     }
   }
 
@@ -60,4 +69,3 @@ export function createChatAutoNamer({
     scheduleAutoNameCompletedSession
   };
 }
-

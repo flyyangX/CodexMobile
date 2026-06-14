@@ -113,6 +113,33 @@ test('POST /api/sessions/:id/unarchive restores archived session and broadcasts 
   assert.deepEqual(calls, [
     ['unarchive', 'archived-1'],
     ['refresh'],
-    ['broadcast', { type: 'sync-complete', syncedAt: 'sync-2', projects: [{ id: 'project-1' }] }]
+    ['broadcast', {
+      type: 'sync-event',
+      event: {
+        id: calls[2][1].event.id,
+        eventType: 'sessions.synced',
+        protocol: 'codexmobile-sync',
+        appMethod: null,
+        source: 'session-routes',
+        projectId: null,
+        sessionId: null,
+        previousSessionId: null,
+        draftSessionId: null,
+        turnId: null,
+        clientTurnId: null,
+        appTurnId: null,
+        itemId: null,
+        itemType: null,
+        status: null,
+        label: null,
+        detail: null,
+        startedAt: null,
+        completedAt: null,
+        durationMs: null,
+        timestamp: calls[2][1].event.timestamp,
+        syncedAt: 'sync-2',
+        projects: [{ id: 'project-1' }]
+      }
+    }]
   ]);
 });

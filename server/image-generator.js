@@ -20,6 +20,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readMobileSessionMessages, registerMobileSession } from './mobile-session-index.js';
 import { DEFAULT_OPENAI_COMPATIBLE_BASE_URL, openAICompatibleConfig } from './provider-api.js';
+import { createSyncEventPayload } from './sync/sync-events.js';
 import { provisionalSessionTitle } from '../shared/session-title.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -299,8 +300,7 @@ function buildAssistantContent(savedImages) {
 }
 
 function emitStatus(emit, { sessionId, turnId, kind, status = 'running', label, detail = '' }) {
-  emit({
-    type: 'status-update',
+  emit(createSyncEventPayload(status === 'failed' ? 'turn.failed' : 'turn.running', {
     sessionId,
     turnId,
     kind,
@@ -308,7 +308,7 @@ function emitStatus(emit, { sessionId, turnId, kind, status = 'running', label, 
     label,
     detail,
     timestamp: new Date().toISOString()
-  });
+  }));
 }
 
 async function appendMobileMessages({ sessionId, projectPath, projectless = false, title, summary, updatedAt, messages }) {
@@ -345,24 +345,29 @@ export async function runImageTurn({
   const startedAt = new Date().toISOString();
 
   if (previousSessionId && previousSessionId !== finalSessionId) {
-    emit({
-      type: 'thread-started',
+    emit(createSyncEventPayload('thread.started', {
       sessionId: finalSessionId,
       previousSessionId,
       turnId,
       projectPath,
       startedAt
-    });
+    }, {
+      session: {
+        id: finalSessionId,
+        projectPath,
+        projectless,
+        title: provisionalSessionTitle(message, '图片生成')
+      }
+    }));
   }
 
-  emit({
-    type: 'chat-started',
+  emit(createSyncEventPayload('turn.running', {
     sessionId: finalSessionId,
     previousSessionId,
     turnId,
     projectPath,
     startedAt
-  });
+  }));
   emitStatus(emit, {
     sessionId: finalSessionId,
     turnId,
@@ -417,8 +422,7 @@ export async function runImageTurn({
           label: `图片接口断流，正在重试 ${attempt + 1}/${IMAGE_MAX_ATTEMPTS}`,
           detail
         });
-        emit({
-          type: 'activity-update',
+        emit(createSyncEventPayload('activity.updated', {
           sessionId: finalSessionId,
           turnId,
           messageId: `retry-${turnId}-${attempt}`,
@@ -427,7 +431,14 @@ export async function runImageTurn({
           status: 'running',
           detail,
           timestamp: new Date().toISOString()
-        });
+        }, {
+          activity: {
+            kind: 'image_generation_call',
+            label: `图片接口断流，正在重试 ${attempt + 1}/${IMAGE_MAX_ATTEMPTS}`,
+            status: 'running',
+            detail
+          }
+        }));
         await sleep(IMAGE_RETRY_BASE_DELAY_MS * attempt);
       }
     }
@@ -442,8 +453,7 @@ export async function runImageTurn({
         label: '图片编辑接口断流，正在改为重绘出图',
         detail: fallbackDetail
       });
-      emit({
-        type: 'activity-update',
+      emit(createSyncEventPayload('activity.updated', {
         sessionId: finalSessionId,
         turnId,
         messageId: `fallback-${turnId}`,
@@ -452,7 +462,14 @@ export async function runImageTurn({
         status: 'running',
         detail: fallbackDetail,
         timestamp: new Date().toISOString()
-      });
+      }, {
+        activity: {
+          kind: 'image_generation_call',
+          label: '图片编辑接口断流，正在改为重绘出图',
+          status: 'running',
+          detail: fallbackDetail
+        }
+      }));
 
       for (let attempt = 1; attempt <= IMAGE_FALLBACK_MAX_ATTEMPTS; attempt += 1) {
         try {
@@ -493,8 +510,7 @@ export async function runImageTurn({
     }
     const completedAt = new Date().toISOString();
 
-    emit({
-      type: 'activity-update',
+    emit(createSyncEventPayload('activity.completed', {
       sessionId: finalSessionId,
       turnId,
       messageId: `activity-${turnId}`,
@@ -503,9 +519,15 @@ export async function runImageTurn({
       status: 'completed',
       detail: `model: ${result.model}`,
       timestamp: completedAt
-    });
-    emit({
-      type: 'assistant-update',
+    }, {
+      activity: {
+        kind: 'image_generation_call',
+        label: result.fallbackFromEdit ? '重绘出图完成' : result.intent === 'edit' ? '图片编辑完成' : '图片生成完成',
+        status: 'completed',
+        detail: `model: ${result.model}`
+      }
+    }));
+    emit(createSyncEventPayload('message.assistant.completed', {
       sessionId: finalSessionId,
       previousSessionId,
       turnId,
@@ -513,8 +535,19 @@ export async function runImageTurn({
       role: 'assistant',
       kind: 'image_generation_result',
       content: assistantContent,
-      done: true
-    });
+      done: true,
+      timestamp: completedAt
+    }, {
+      message: {
+        id: `assistant-${turnId}`,
+        role: 'assistant',
+        content: assistantContent,
+        timestamp: completedAt,
+        sessionId: finalSessionId,
+        turnId,
+        done: true
+      }
+    }));
 
     if (persistMobileSession) {
       const existingMessages = await readMobileSessionMessages(finalSessionId);
@@ -543,15 +576,17 @@ export async function runImageTurn({
       });
     }
 
-    emit({
-      type: 'chat-complete',
+    emit(createSyncEventPayload('turn.completed', {
       sessionId: finalSessionId,
       previousSessionId,
       turnId,
       usage: result.usage,
       hadAssistantText: true,
       completedAt
-    });
+    }, {
+      usage: result.usage,
+      hadAssistantText: true
+    }));
   } catch (error) {
     const messageText = safeErrorMessage(error);
     console.error('[image] Generation failed:', messageText);
@@ -574,8 +609,7 @@ export async function runImageTurn({
         ]
       });
     }
-    emit({
-      type: 'activity-update',
+    emit(createSyncEventPayload('activity.failed', {
       sessionId: finalSessionId,
       turnId,
       messageId: `activity-${turnId}`,
@@ -585,7 +619,15 @@ export async function runImageTurn({
       detail: messageText,
       error: messageText,
       timestamp: new Date().toISOString()
-    });
+    }, {
+      activity: {
+        kind: 'image_generation_call',
+        label: '图片生成失败',
+        status: 'failed',
+        detail: messageText,
+        error: messageText
+      }
+    }));
     emitStatus(emit, {
       sessionId: finalSessionId,
       turnId,
@@ -594,13 +636,14 @@ export async function runImageTurn({
       label: '图片生成失败',
       detail: messageText
     });
-    emit({
-      type: 'chat-error',
+    emit(createSyncEventPayload('turn.failed', {
       sessionId: finalSessionId,
       previousSessionId,
       turnId,
-      error: messageText
-    });
+      error: messageText,
+      detail: messageText,
+      status: 'failed'
+    }));
   }
 
   return finalSessionId;

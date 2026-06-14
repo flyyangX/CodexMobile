@@ -15,6 +15,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { createSyncEventPayload } from './sync/sync-events.js';
 
 function isContinuationMessage(message) {
   return /^(继续|中断了|又中断了|断了|重新来|重新生成|重新发送|再来|再试一次|retry|continue)$/i.test(String(message || '').trim());
@@ -163,17 +164,17 @@ export function createChatImageHandler({
         persistMobileSession: true
       },
       (payload) => {
-        if (payload.turnId && activeImageRuns.has(payload.turnId)) {
-          const existing = activeImageRuns.get(payload.turnId);
-          if (payload.type === 'status-update' || payload.type === 'activity-update') {
-            activeImageRuns.set(payload.turnId, {
-              ...existing,
-              sessionId: payload.sessionId || existing.sessionId,
-              previousSessionId: payload.previousSessionId || existing.previousSessionId,
-              status: payload.status || existing.status,
-              label: payload.label || existing.label
-            });
-          }
+        const event = payload?.type === 'sync-event' ? payload.event : null;
+        const payloadTurnId = event?.turnId || event?.clientTurnId;
+        if (payloadTurnId && activeImageRuns.has(payloadTurnId)) {
+          const existing = activeImageRuns.get(payloadTurnId);
+          activeImageRuns.set(payloadTurnId, {
+            ...existing,
+            sessionId: event.sessionId || existing.sessionId,
+            previousSessionId: event.previousSessionId || existing.previousSessionId,
+            status: event.status || event.activity?.status || existing.status,
+            label: event.label || event.activity?.label || existing.label
+          });
         }
         emitJobEvent({ project }, payload);
       }
@@ -185,7 +186,14 @@ export function createChatImageHandler({
       });
       try {
         const snapshot = await refreshCodexCache();
-        broadcast({ type: 'sync-complete', syncedAt: snapshot.syncedAt, projects: snapshot.projects });
+        broadcast(createSyncEventPayload('sessions.synced', {
+          source: 'image-generator',
+          syncedAt: snapshot.syncedAt,
+          projects: snapshot.projects
+        }, {
+          syncedAt: snapshot.syncedAt,
+          projects: snapshot.projects
+        }));
       } catch (error) {
         console.warn('[sync] Failed to refresh after image chat:', error.message);
       }
@@ -200,13 +208,14 @@ export function createChatImageHandler({
         error: errorMessage,
         label: '图片生成失败'
       });
-      emitJobEvent({ project }, {
-        type: 'chat-error',
+      emitJobEvent({ project }, createSyncEventPayload('turn.failed', {
         sessionId: imageSessionId,
         previousSessionId,
         turnId,
-        error: errorMessage
-      });
+        error: errorMessage,
+        detail: errorMessage,
+        status: 'failed'
+      }));
     }).finally(() => {
       activeImageRuns.delete(turnId);
     });

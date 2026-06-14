@@ -14,12 +14,12 @@ import {
 } from './notification-events.js';
 
 test('notificationFromPayload creates completion and failure toasts', () => {
-  assert.deepEqual(notificationFromPayload({ type: 'chat-complete' }), {
+  assert.deepEqual(notificationFromPayload({ type: 'sync-event', event: { eventType: 'turn.completed' } }), {
     level: 'success',
     title: '任务已完成',
     body: 'Codex 已处理完当前任务。'
   });
-  assert.deepEqual(notificationFromPayload({ type: 'chat-error', error: 'boom' }), {
+  assert.deepEqual(notificationFromPayload({ type: 'sync-event', event: { eventType: 'turn.failed', detail: 'boom' } }), {
     level: 'error',
     title: '任务失败',
     body: 'boom'
@@ -27,9 +27,9 @@ test('notificationFromPayload creates completion and failure toasts', () => {
 });
 
 test('payloadNeedsUserInput detects approval style status without matching normal streaming', () => {
-  assert.equal(payloadNeedsUserInput({ type: 'status-update', label: '需要你确认权限' }), true);
-  assert.equal(payloadNeedsUserInput({ type: 'activity-update', detail: 'waiting for user input' }), true);
-  assert.equal(payloadNeedsUserInput({ type: 'status-update', label: '正在同步回复', status: 'running' }), false);
+  assert.equal(payloadNeedsUserInput({ type: 'sync-event', event: { eventType: 'interaction.requested', label: '需要你确认权限' } }), true);
+  assert.equal(payloadNeedsUserInput({ type: 'sync-event', event: { eventType: 'activity.updated', detail: 'waiting for user input' } }), true);
+  assert.equal(payloadNeedsUserInput({ type: 'sync-event', event: { eventType: 'activity.updated', label: '正在同步回复', status: 'running' } }), false);
 });
 
 test('shouldUseWebNotification only fires when permission and context allow it', () => {

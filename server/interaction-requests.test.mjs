@@ -44,8 +44,9 @@ test('requestUserInput stays pending until the mobile response supplies answers'
   assert.equal(pendingInteractions[0].kind, 'user_input');
   assert.equal(pendingInteractions[0].title, '检查方式');
   assert.equal(pendingInteractions[0].questions[0].options.length, 2);
-  assert.equal(broadcasts[0].type, 'interaction-request');
-  assert.equal(broadcasts[0].interaction.id, pendingInteractions[0].id);
+  assert.equal(broadcasts[0].type, 'sync-event');
+  assert.equal(broadcasts[0].event.eventType, 'interaction.requested');
+  assert.equal(broadcasts[0].event.interaction.id, pendingInteractions[0].id);
 
   await broker.respondInteraction(pendingInteractions[0].id, {
     answers: { check_method: '仅手动检查' }
@@ -54,8 +55,9 @@ test('requestUserInput stays pending until the mobile response supplies answers'
   await assert.doesNotReject(pending);
   assert.deepEqual(await pending, { answers: { check_method: { answers: ['仅手动检查'] } } });
   assert.equal(broker.listPendingInteractions().length, 0);
-  assert.equal(broadcasts.at(-1).type, 'interaction-resolved');
-  assert.equal(broadcasts.at(-1).interactionId, pendingInteractions[0].id);
+  assert.equal(broadcasts.at(-1).type, 'sync-event');
+  assert.equal(broadcasts.at(-1).event.eventType, 'interaction.resolved');
+  assert.equal(broadcasts.at(-1).event.interactionId, pendingInteractions[0].id);
 });
 
 test('requestUserInput rejects approved responses missing required answers', async () => {
@@ -160,7 +162,7 @@ test('elicitation request accepts JSON schema questions and returns content answ
   assert.equal(interaction.questions[0].description, '影响联网、下载和安装策略。');
   assert.equal(interaction.questions[0].options[0].label, '自动检查 + 手动更新');
   assert.equal(interaction.questions[1].options[1].id, 'chat');
-  assert.equal(broadcasts[0].interaction.prompt, '生成计划前需要补充信息。');
+  assert.equal(broadcasts[0].event.interaction.prompt, '生成计划前需要补充信息。');
 
   await broker.respondInteraction(interaction.id, {
     action: 'approve',

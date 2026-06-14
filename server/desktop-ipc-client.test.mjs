@@ -322,7 +322,7 @@ test('broadcastDesktopThreadListRefresh invalidates desktop task and command sea
     hostId: 'local',
     conversationId: 'thread-1',
     cwd: '/repo',
-    reason: 'background-thread-started',
+    reason: 'background-thread-created',
     socketPath,
     timeoutMs: 1000
   });

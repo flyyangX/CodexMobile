@@ -16,43 +16,39 @@ import {
   shouldRenderStatusMessageForPayload
 } from './app/useAppWebSocket.js';
 
-test('desktop IPC status updates render through the same live path', () => {
+test('desktop IPC sync events render through the unified sync path', () => {
   assert.equal(
     shouldRenderStatusMessageForPayload({
-      type: 'status-update',
-      source: 'desktop-ipc',
-      kind: 'turn',
-      status: 'running'
+      type: 'sync-event',
+      event: {
+        eventType: 'turn.running',
+        source: 'desktop-ipc',
+        status: 'running'
+      }
     }),
     false
   );
 });
 
-test('legacy status updates never render directly after sync rewrite', () => {
+test('sync status events never render directly outside the sync reducer', () => {
   assert.equal(
     shouldRenderStatusMessageForPayload({
-      type: 'status-update',
-      source: 'desktop-ipc',
-      kind: 'turn',
-      status: 'completed'
+      type: 'sync-event',
+      event: { eventType: 'turn.completed', source: 'desktop-ipc', status: 'completed' }
     }),
     false
   );
   assert.equal(
     shouldRenderStatusMessageForPayload({
-      type: 'status-update',
-      source: 'headless-local',
-      kind: 'turn',
-      status: 'running'
+      type: 'sync-event',
+      event: { eventType: 'turn.running', source: 'headless-local', status: 'running' }
     }),
     false
   );
   assert.equal(
     shouldRenderStatusMessageForPayload({
-      type: 'status-update',
-      source: 'headless-local',
-      kind: 'reasoning',
-      status: 'running'
+      type: 'sync-event',
+      event: { eventType: 'activity.updated', source: 'headless-local', itemType: 'reasoning' }
     }),
     false
   );
@@ -61,75 +57,67 @@ test('legacy status updates never render directly after sync rewrite', () => {
 test('terminal events no longer trigger desktop-thread refresh path', () => {
   assert.equal(
     shouldRefreshDesktopThreadForPayload({
-      type: 'chat-complete',
-      source: 'desktop-ipc'
+      type: 'sync-event',
+      event: { eventType: 'turn.completed', source: 'desktop-ipc' }
     }),
     false
   );
   assert.equal(
     shouldRefreshDesktopThreadForPayload({
-      type: 'status-update',
-      source: 'desktop-ipc',
-      kind: 'turn',
-      status: 'completed'
+      type: 'sync-event',
+      event: { eventType: 'turn.completed', source: 'desktop-ipc' }
     }),
     false
   );
   assert.equal(
     shouldRefreshDesktopThreadForPayload({
-      type: 'chat-complete',
-      source: 'headless-local'
+      type: 'sync-event',
+      event: { eventType: 'turn.completed', source: 'headless-local' }
     }),
     false
   );
   assert.equal(
     shouldCompleteLocalTurnBeforeRefresh({
-      type: 'chat-complete',
-      source: 'desktop-ipc'
+      type: 'sync-event',
+      event: { eventType: 'turn.completed', source: 'desktop-ipc' }
     }),
     false
   );
   assert.equal(
     shouldCompleteLocalTurnBeforeRefresh({
-      type: 'status-update',
-      source: 'desktop-ipc',
-      kind: 'turn',
-      status: 'completed'
+      type: 'sync-event',
+      event: { eventType: 'turn.completed', source: 'desktop-ipc' }
     }),
     false
   );
   assert.equal(
     shouldCompleteLocalTurnBeforeRefresh({
-      type: 'status-update',
-      source: 'desktop-ipc',
-      kind: 'turn',
-      status: 'failed'
+      type: 'sync-event',
+      event: { eventType: 'turn.failed', source: 'desktop-ipc' }
     }),
     false
   );
 });
 
-test('legacy activity and assistant updates no longer render directly', () => {
+test('activity and assistant sync events no longer render directly', () => {
   assert.equal(
     shouldRenderActivityMessageForPayload({
-      type: 'activity-update',
-      source: 'headless-local',
-      status: 'running'
+      type: 'sync-event',
+      event: { eventType: 'activity.updated', source: 'headless-local', status: 'running' }
     }),
     false
   );
   assert.equal(
     shouldRenderAssistantMessageForPayload({
-      type: 'assistant-update',
-      source: 'headless-local',
-      content: '完成'
+      type: 'sync-event',
+      event: { eventType: 'message.assistant.completed', source: 'headless-local', message: { content: '完成' } }
     }),
     false
   );
   assert.equal(
     shouldRenderActivityMessageForPayload({
-      type: 'activity-update',
-      status: 'running'
+      type: 'sync-event',
+      event: { eventType: 'activity.updated', status: 'running' }
     }),
     false
   );

@@ -494,7 +494,7 @@ export function autoTitlePatch(title, phase = 'provisional') {
 }
 
 export function payloadRunKeys(payload) {
-  return [payload?.turnId, payload?.clientTurnId, payload?.sessionId, payload?.previousSessionId].filter(Boolean);
+  return [payload?.turnId, payload?.clientTurnId, payload?.appTurnId, payload?.sessionId, payload?.previousSessionId].filter(Boolean);
 }
 
 export function selectedRunKeys(session) {

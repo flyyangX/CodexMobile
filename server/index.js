@@ -111,6 +111,7 @@ import { readBody, sendJson } from './http-utils.js';
 import { createPushService } from './push-service.js';
 import { createStaticService } from './static-service.js';
 import { createSyncBridge } from './sync/sync-bridge.js';
+import { createSyncEventPayload } from './sync/sync-events.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT_DIR = path.resolve(__dirname, '..');
@@ -324,15 +325,21 @@ async function requireAuth(req, res, pathname = '', url = null) {
 }
 
 function broadcast(payload) {
-  const outbound =
-    payload?.type === 'sync-event' || payload?.type === 'sync-state'
-      ? [payload]
-      : syncBridge.consumeLegacyPayload(payload);
+  const outbound = payload?.type === 'app-server-message'
+    ? syncBridge.consumeAppServerMessage(payload.appMessage, payload.context)
+    : payload?.type === 'sync-event' && payload.event
+      ? syncBridge.consumeSyncEvents([payload.event])
+      : payload?.type === 'sync-state'
+        ? [payload]
+        : [];
+  if (!outbound.length && !['sync-event', 'sync-state', 'app-server-message'].includes(payload?.type)) {
+    console.warn(`[sync] Ignored non-sync broadcast payload: ${payload?.type || 'unknown'}`);
+  }
   for (const item of outbound) {
     sendSocketPayload(item);
   }
-  if (payload.type !== 'sync-event' && payload.type !== 'sync-state') {
-    pushService.notifyForPayload(payload).catch((error) => {
+  for (const item of outbound) {
+    pushService.notifyForPayload(item).catch((error) => {
       console.warn('[push] Notification dispatch failed:', error.message);
     });
   }
@@ -349,7 +356,6 @@ function sendSocketPayload(payload) {
 
 function broadcastModelSettings(settings, { source = 'server', desktopSync = null, sessionId = null } = {}) {
   const payload = {
-    type: 'model-settings-updated',
     source,
     ...publicModelSettings(settings, sessionId ? { sessionId } : {}),
     desktopSync,
@@ -359,8 +365,15 @@ function broadcastModelSettings(settings, { source = 'server', desktopSync = nul
     liveModelSettings = publicModelSettings(payload);
     lastObservedModelSettingsKey = modelSettingsKey(liveModelSettings);
   }
-  broadcast(payload);
-  return payload;
+  const syncPayload = createSyncEventPayload('model.updated', payload, {
+    model: payload.model || null,
+    modelShort: payload.modelShort || null,
+    reasoningEffort: payload.reasoningEffort || null,
+    provider: payload.provider || null,
+    desktopSync: payload.desktopSync || null
+  });
+  broadcast(syncPayload);
+  return syncPayload.event;
 }
 
 function startModelSettingsWatcher() {
@@ -515,7 +528,14 @@ function syncStateHasDesktopRuntime(sessionId) {
 async function refreshAfterDesktopThreadStateChange({ sessionId, projectId, inferIdleCompletion = false } = {}) {
   const snapshot = await startSyncRefresh();
   if (snapshot?.projects) {
-    broadcast({ type: 'sync-complete', syncedAt: snapshot.syncedAt, projects: snapshot.projects });
+    broadcast(createSyncEventPayload('sessions.synced', {
+      source: 'desktop-ipc',
+      syncedAt: snapshot.syncedAt,
+      projects: snapshot.projects
+    }, {
+      syncedAt: snapshot.syncedAt,
+      projects: snapshot.projects
+    }));
   }
   if (!inferIdleCompletion || !sessionId) {
     return;
@@ -524,14 +544,13 @@ async function refreshAfterDesktopThreadStateChange({ sessionId, projectId, infe
   if (!refreshedSession || refreshedSession.runtime?.status === 'running') {
     return;
   }
-  broadcast({
-    type: 'desktop-thread-updated',
+  broadcast(createSyncEventPayload('turn.completed', {
     source: 'desktop-ipc',
     sessionId,
     projectId: projectId || refreshedSession.projectId || null,
     status: 'completed',
     timestamp: new Date().toISOString()
-  });
+  }));
 }
 
 const desktopIpcBroadcastListener = createDesktopIpcBroadcastListener({
@@ -544,15 +563,21 @@ const desktopIpcBroadcastListener = createDesktopIpcBroadcastListener({
       }
       const session = getSession(sessionId);
       const status = desktopBroadcastRuntimeStatus(message);
-      broadcast({
-        type: 'desktop-thread-updated',
+      const eventType = status === 'completed'
+        ? 'turn.completed'
+        : status === 'failed'
+          ? 'turn.failed'
+          : status === 'running'
+            ? 'turn.running'
+            : 'thread.updated';
+      broadcast(createSyncEventPayload(eventType, {
         source: 'desktop-ipc',
-        method: message.method,
+        appMethod: message.method,
         sessionId,
         projectId: params.projectId || params.project_id || session?.projectId || null,
         status: status || undefined,
         timestamp: new Date().toISOString()
-      });
+      }));
       const shouldRefresh =
         (status && status !== 'running') ||
         (!status && syncStateHasDesktopRuntime(sessionId));
@@ -579,8 +604,7 @@ const desktopIpcBroadcastListener = createDesktopIpcBroadcastListener({
     if (!renamed?.projectId) {
       return;
     }
-    broadcast({
-      type: 'session-renamed',
+    broadcast(createSyncEventPayload('thread.renamed', {
       source: 'desktop-ipc',
       projectId: renamed.projectId,
       sessionId: renamed.id,
@@ -588,9 +612,20 @@ const desktopIpcBroadcastListener = createDesktopIpcBroadcastListener({
       titleLocked: renamed.titleLocked,
       updatedAt: renamed.updatedAt,
       session: renamed
-    });
+    }, {
+      title: renamed.title,
+      titleLocked: renamed.titleLocked,
+      session: renamed
+    }));
     const snapshot = getCacheSnapshot();
-    broadcast({ type: 'sync-complete', syncedAt: snapshot.syncedAt, projects: snapshot.projects });
+    broadcast(createSyncEventPayload('sessions.synced', {
+      source: 'desktop-ipc',
+      syncedAt: snapshot.syncedAt,
+      projects: snapshot.projects
+    }, {
+      syncedAt: snapshot.syncedAt,
+      projects: snapshot.projects
+    }));
   }
 });
 const handleNotificationApi = createNotificationRouteHandler({
@@ -645,7 +680,14 @@ async function refreshCodexCacheForSyncResponse() {
   if (currentSnapshot.projects?.length) {
     startSyncRefresh()
       .then((snapshot) => {
-        broadcast({ type: 'sync-complete', syncedAt: snapshot.syncedAt, projects: snapshot.projects });
+        broadcast(createSyncEventPayload('sessions.synced', {
+          source: 'server',
+          syncedAt: snapshot.syncedAt,
+          projects: snapshot.projects
+        }, {
+          syncedAt: snapshot.syncedAt,
+          projects: snapshot.projects
+        }));
       })
       .catch((error) => {
         console.warn('[sync] Background refresh failed:', error.message);
@@ -673,7 +715,14 @@ async function refreshCodexCacheForSyncResponse() {
   if (result.timedOut) {
     refresh
       .then((snapshot) => {
-        broadcast({ type: 'sync-complete', syncedAt: snapshot.syncedAt, projects: snapshot.projects });
+        broadcast(createSyncEventPayload('sessions.synced', {
+          source: 'server',
+          syncedAt: snapshot.syncedAt,
+          projects: snapshot.projects
+        }, {
+          syncedAt: snapshot.syncedAt,
+          projects: snapshot.projects
+        }));
       })
       .catch((error) => {
         console.warn('[sync] Background refresh failed:', error.message);
@@ -953,7 +1002,14 @@ async function handleApi(req, res, url) {
     const result = await refreshCodexCacheForSyncResponse();
     const { snapshot, timedOut } = result;
     if (!timedOut) {
-      broadcast({ type: 'sync-complete', syncedAt: snapshot.syncedAt, projects: snapshot.projects });
+      broadcast(createSyncEventPayload('sessions.synced', {
+        source: 'server',
+        syncedAt: snapshot.syncedAt,
+        projects: snapshot.projects
+      }, {
+        syncedAt: snapshot.syncedAt,
+        projects: snapshot.projects
+      }));
     }
     sendJson(res, 200, { success: !timedOut && !result.error, pending: timedOut, error: result.error?.message || null, ...snapshot });
     return;

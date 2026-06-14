@@ -13,6 +13,7 @@
  *
  * 不负责: HTTP 层与路由注册。
  */
+import { createSyncEventPayload } from './sync/sync-events.js';
 
 export async function readDesktopBridgeStatus(getDesktopBridgeStatus) {
   if (!getDesktopBridgeStatus) {
@@ -103,12 +104,60 @@ export function runQueuedHeadlessChatJob({
       ]).then(() =>
         notifyDesktopThreadListChanged?.({
           ...backgroundThread,
-          reason: 'background-thread-started'
+          reason: 'background-thread-created'
         })
       ).catch((error) => {
         console.warn('[sessions] Failed to register background thread:', error.message);
       })
     );
+  }
+
+  function syncEventFromPayload(payload = {}) {
+    return payload?.type === 'sync-event' ? payload.event : null;
+  }
+
+  function appServerThreadStartedPayload(payload = {}) {
+    if (payload?.type !== 'app-server-message' || payload.appMessage?.method !== 'thread/started') {
+      return null;
+    }
+    const thread = payload.appMessage?.params?.thread || {};
+    const sessionId = thread.id || payload.context?.sessionId || '';
+    return sessionId ? {
+      sessionId,
+      previousSessionId: payload.context?.previousSessionId || payload.context?.draftSessionId || null,
+      turnId: payload.context?.turnId || job.turnId,
+      projectPath: job.executionProjectPath || job.project.path,
+      cwd: thread.cwd || job.executionProjectPath || job.project.path || null,
+      filePath: thread.path || thread.filePath || null,
+      startedAt: payload.context?.startedAt || new Date().toISOString()
+    } : null;
+  }
+
+  function isTerminalPayload(payload = {}) {
+    const event = syncEventFromPayload(payload);
+    if (event) {
+      return ['turn.completed', 'turn.failed', 'turn.aborted'].includes(event.eventType);
+    }
+    return payload?.type === 'app-server-message' && (
+      payload.appMessage?.method === 'turn/completed' ||
+      (payload.appMessage?.method === 'error' && !payload.appMessage?.params?.willRetry)
+    );
+  }
+
+  function sessionIdFromPayload(payload = {}) {
+    const event = syncEventFromPayload(payload);
+    if (event) {
+      return event.sessionId || event.previousSessionId || null;
+    }
+    if (payload?.type === 'app-server-message') {
+      return payload.context?.sessionId || payload.context?.previousSessionId || payload.appMessage?.params?.thread?.id || null;
+    }
+    return payload.sessionId || null;
+  }
+
+  function previousSessionIdFromPayload(payload = {}) {
+    const event = syncEventFromPayload(payload);
+    return event ? event.previousSessionId || event.draftSessionId || null : payload.previousSessionId || null;
   }
 
   runCodexTurn(
@@ -134,24 +183,30 @@ export function runQueuedHeadlessChatJob({
         ...payload,
         source: payload?.source || 'headless-local'
       };
-      if (['chat-complete', 'chat-error', 'chat-aborted'].includes(eventPayload.type)) {
+      if (isTerminalPayload(eventPayload)) {
         terminalEventSeen = true;
         requestDesktopRefresh(
-          eventPayload.sessionId || state.sessionId || sessionId || job.selectedSessionId,
-          lastBackgroundThread ? 'background-thread-completed' : 'headless-turn-completed'
+          sessionIdFromPayload(eventPayload) || state.sessionId || sessionId || job.selectedSessionId,
+          lastBackgroundThread ? 'background-thread-done' : 'headless-turn-done'
         );
       }
-      if (eventPayload.sessionId) {
-        state.sessionId = eventPayload.sessionId;
-        rememberConversationAlias(queueKey, eventPayload.sessionId);
+      const payloadSessionId = sessionIdFromPayload(eventPayload);
+      const payloadPreviousSessionId = previousSessionIdFromPayload(eventPayload);
+      if (payloadSessionId) {
+        state.sessionId = payloadSessionId;
+        rememberConversationAlias(queueKey, payloadSessionId);
       }
-      if (eventPayload.previousSessionId) {
-        rememberConversationAlias(queueKey, eventPayload.previousSessionId);
+      if (payloadPreviousSessionId) {
+        rememberConversationAlias(queueKey, payloadPreviousSessionId);
       }
-      if (eventPayload.type === 'thread-started') {
-        rememberStartedBackgroundThread(eventPayload);
-      } else if (eventPayload.type === 'chat-started') {
-        rememberStartedBackgroundThread(eventPayload);
+      const event = syncEventFromPayload(eventPayload);
+      if (event?.eventType === 'thread.started') {
+        rememberStartedBackgroundThread(event);
+      } else {
+        const startedPayload = appServerThreadStartedPayload(eventPayload);
+        if (startedPayload) {
+          rememberStartedBackgroundThread(startedPayload);
+        }
       }
       emitJobEvent(job, eventPayload);
     }
@@ -175,8 +230,7 @@ export function runQueuedHeadlessChatJob({
     if (!terminalEventSeen) {
       const completedAt = new Date().toISOString();
       terminalEventSeen = true;
-      emitJobEvent(job, {
-        type: 'chat-complete',
+      emitJobEvent(job, createSyncEventPayload('turn.completed', {
         source: 'headless-local',
         projectId: job.project.id,
         sessionId: finalSessionId || sessionId || job.selectedSessionId || null,
@@ -184,7 +238,7 @@ export function runQueuedHeadlessChatJob({
         turnId: job.turnId,
         completedAt,
         timestamp: completedAt
-      });
+      }));
     }
   }).catch((error) => {
     if (terminalEventSeen) {
@@ -192,17 +246,17 @@ export function runQueuedHeadlessChatJob({
     }
     const completedAt = new Date().toISOString();
     terminalEventSeen = true;
-    emitJobEvent(job, {
-      type: 'chat-error',
+    emitJobEvent(job, createSyncEventPayload('turn.failed', {
       source: 'headless-local',
       projectId: job.project.id,
       sessionId: state.sessionId || sessionId || job.selectedSessionId || null,
       previousSessionId: job.draftSessionId || job.selectedSessionId || null,
       turnId: job.turnId,
       error: error?.message || '任务失败',
+      detail: error?.message || '任务失败',
       completedAt,
       timestamp: completedAt
-    });
+    }));
   }).finally(async () => {
     state.running = false;
     if (state.jobs.length) {
@@ -213,16 +267,23 @@ export function runQueuedHeadlessChatJob({
         await Promise.allSettled(metadataUpdates);
       }
       const snapshot = await refreshCodexCache();
-      broadcast({ type: 'sync-complete', syncedAt: snapshot.syncedAt, projects: snapshot.projects });
+      broadcast(createSyncEventPayload('sessions.synced', {
+        source: 'headless-local',
+        syncedAt: snapshot.syncedAt,
+        projects: snapshot.projects
+      }, {
+        syncedAt: snapshot.syncedAt,
+        projects: snapshot.projects
+      }));
       const refreshThreadId = lastBackgroundThread?.threadId || state.sessionId || sessionId || job.selectedSessionId || null;
       if (lastBackgroundThread) {
         await notifyDesktopThreadListChanged?.({
           ...lastBackgroundThread,
-          reason: 'background-thread-completed'
+          reason: 'background-thread-done'
         });
       }
       if (refreshThreadId) {
-        requestDesktopRefresh(refreshThreadId, lastBackgroundThread ? 'background-thread-completed' : 'headless-turn-completed');
+        requestDesktopRefresh(refreshThreadId, lastBackgroundThread ? 'background-thread-done' : 'headless-turn-done');
       }
     } catch (error) {
       console.warn('[sync] Failed to refresh after chat:', error.message);

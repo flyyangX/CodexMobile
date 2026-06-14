@@ -38,45 +38,55 @@ function normalizeSubscription(subscription = {}) {
 }
 
 function needsUserInput(payload = {}) {
+  const event = payload.type === 'sync-event' ? payload.event || {} : payload;
+  const activity = event.activity || {};
+  const interaction = event.interaction || {};
   const text = [
     payload.type,
-    payload.status,
-    payload.kind,
-    payload.label,
-    payload.detail,
-    payload.content,
-    payload.error
+    event.eventType,
+    event.status,
+    event.itemType,
+    event.label,
+    event.detail,
+    event.message?.content,
+    event.error,
+    activity.kind,
+    activity.label,
+    activity.detail,
+    interaction.title,
+    interaction.prompt
   ].filter(Boolean).join(' ');
   return NEEDS_INPUT_PATTERN.test(text);
 }
 
 export function notificationFromServerPayload(payload = {}) {
-  if (payload.type === 'chat-complete') {
+  const event = payload.type === 'sync-event' ? payload.event || {} : {};
+  if (event.eventType === 'turn.completed') {
     return {
       level: 'success',
       title: '任务已完成',
-      body: payload.detail || 'Codex 已处理完当前任务。'
+      body: event.detail || 'Codex 已处理完当前任务。'
     };
   }
-  if (payload.type === 'chat-error') {
+  if (event.eventType === 'turn.failed') {
     return {
       level: 'error',
       title: '任务失败',
-      body: payload.error || payload.detail || 'Codex 执行时遇到错误。'
+      body: event.error || event.detail || 'Codex 执行时遇到错误。'
     };
   }
-  if (payload.type === 'chat-aborted') {
+  if (event.eventType === 'turn.aborted') {
     return {
       level: 'info',
       title: '任务已中止',
-      body: payload.detail || '当前任务已经停下。'
+      body: event.detail || '当前任务已经停下。'
     };
   }
-  if ((payload.type === 'status-update' || payload.type === 'activity-update') && needsUserInput(payload)) {
+  if ((event.eventType === 'interaction.requested' || needsUserInput(payload)) && event.eventType !== 'message.assistant.delta') {
     return {
       level: 'warning',
       title: '需要处理',
-      body: payload.label || payload.detail || 'Codex 正在等待你的确认或输入。'
+      body: event.label || event.detail || event.interaction?.title || 'Codex 正在等待你的确认或输入。'
     };
   }
   return null;

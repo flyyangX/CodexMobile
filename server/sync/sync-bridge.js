@@ -1,10 +1,10 @@
 /**
- * 同步桥：接收旧广播 payload，产出统一 SyncEvent 与最新 sync-state。
+ * 同步桥：接收 app-server v2 消息或统一 SyncEvent，产出最新 sync-state。
  *
- * Keywords: sync-bridge, legacy-payload, sync-event, broadcast
+ * Keywords: sync-bridge, app-server-v2, sync-event, broadcast
  *
  * Exports:
- * - createSyncBridge — 创建旧事件到统一同步事件的转换与状态桥。
+ * - createSyncBridge — 创建 app-server 消息/SyncEvent 到统一同步状态的转换桥。
  *
  * Inward（本模块依赖/组装的关键符号）: sync-events、sync-store、sync-projector。
  *
@@ -13,15 +13,14 @@
  * 不负责: 具体 WebSocket socket 管理。
  */
 
-import { normalizeLegacyPayloadToSyncEvents } from './sync-events.js';
+import { normalizeAppServerMessageToSyncEvents } from './app-server-events.js';
 import { createSyncStore } from './sync-store.js';
 import { syncEventPayload, syncStatePayload } from './sync-projector.js';
 
 export function createSyncBridge(options = {}) {
   const store = createSyncStore(options);
 
-  function consumeLegacyPayload(payload = {}) {
-    const events = normalizeLegacyPayloadToSyncEvents(payload);
+  function consumeSyncEvents(events = []) {
     if (!events.length) {
       return [];
     }
@@ -29,6 +28,11 @@ export function createSyncBridge(options = {}) {
       const snapshot = store.applyEvent(event);
       return syncEventPayload(event, snapshot);
     });
+  }
+
+  function consumeAppServerMessage(appMessage = {}, context = {}) {
+    const events = normalizeAppServerMessageToSyncEvents(appMessage, context);
+    return consumeSyncEvents(events);
   }
 
   function publicState() {
@@ -40,7 +44,8 @@ export function createSyncBridge(options = {}) {
   }
 
   return {
-    consumeLegacyPayload,
+    consumeAppServerMessage,
+    consumeSyncEvents,
     publicState,
     publicStatePayload,
     setBridgeStatus: store.setBridgeStatus

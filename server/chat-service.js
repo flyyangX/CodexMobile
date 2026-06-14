@@ -47,6 +47,7 @@ import {
   steerDesktopFollowerTurn as steerDesktopFollowerTurnInCodexApp
 } from './desktop-ipc-client.js';
 import { createInteractionBroker } from './interaction-requests.js';
+import { createSyncEventPayload } from './sync/sync-events.js';
 
 export { normalizeSelectedSkills } from './chat-request-prep.js';
 
@@ -242,13 +243,13 @@ export function createChatService({
       label: sendMode === 'steer' ? '已发送到当前任务' : '已交给电脑端处理',
       startedAt: now
     });
-    broadcast({
-      type: 'user-message',
+    broadcast(createSyncEventPayload('message.user', {
       source: 'desktop-ipc',
       sessionId: selectedSessionId,
       projectId: project.id,
       turnId,
       clientTurnId: turnId,
+      itemId: `local-${Date.now()}`,
       message: {
         id: `local-${Date.now()}`,
         role: 'user',
@@ -257,9 +258,8 @@ export function createChatService({
         deliveryState: 'confirmed',
         timestamp: now
       }
-    });
-    broadcast({
-      type: 'status-update',
+    }));
+    broadcast(createSyncEventPayload('turn.running', {
       source: 'desktop-ipc',
       projectId: project.id,
       sessionId: selectedSessionId,
@@ -269,7 +269,9 @@ export function createChatService({
       label: sendMode === 'steer' ? '已发送到当前任务' : '已交给电脑端处理',
       detail: '',
       timestamp: new Date().toISOString()
-    });
+    }, {
+      suppressedInChat: true
+    }));
     return {
       accepted: true,
       queued: false,
@@ -283,7 +285,23 @@ export function createChatService({
   }
 
   function emitJobEvent(job, payload) {
-    const enriched = { projectId: job.project.id, ...payload };
+    const enriched = payload?.type === 'sync-event'
+      ? {
+        ...payload,
+        event: {
+          ...payload.event,
+          projectId: payload.event?.projectId || job.project.id
+        }
+      }
+      : payload?.type === 'app-server-message'
+        ? {
+          ...payload,
+          context: {
+            ...(payload.context || {}),
+            projectId: payload.context?.projectId || job.project.id
+          }
+        }
+        : { projectId: job.project.id, ...payload };
     rememberTurnEvent(enriched);
     broadcast(enriched);
   }
@@ -343,8 +361,7 @@ export function createChatService({
         label: '已加入队列',
         sessionId: sessionId || null
       });
-      broadcast({
-        type: 'status-update',
+      broadcast(createSyncEventPayload('turn.queued', {
         projectId: job.project.id,
         sessionId,
         turnId: job.turnId,
@@ -354,7 +371,7 @@ export function createChatService({
         label: '已加入队列',
         detail: '',
         timestamp: new Date().toISOString()
-      });
+      }));
     }
 
     if (autoStart) {
@@ -569,12 +586,12 @@ export function createChatService({
         status: 'running',
         label: '已发送到当前任务'
       });
-      broadcast({
-        type: 'user-message',
+      broadcast(createSyncEventPayload('message.user', {
         sessionId: result.sessionId || selectedSessionId,
         projectId: project.id,
         turnId: result.turnId || turnId,
         clientTurnId: turnId,
+        itemId: `local-${Date.now()}`,
         message: {
           id: `local-${Date.now()}`,
           role: 'user',
@@ -583,9 +600,8 @@ export function createChatService({
           deliveryState: 'confirmed',
           timestamp: new Date().toISOString()
         }
-      });
-      broadcast({
-        type: 'status-update',
+      }));
+      broadcast(createSyncEventPayload('turn.running', {
         projectId: project.id,
         sessionId: result.sessionId || selectedSessionId,
         turnId,
@@ -594,7 +610,7 @@ export function createChatService({
         label: '已发送到当前任务',
         detail: '',
         timestamp: new Date().toISOString()
-      });
+      }));
       runtimeDebugLine('sendChat.exit', {
         branch: 'steer',
         delivery: 'steered',
@@ -626,12 +642,12 @@ export function createChatService({
       startedAt: new Date().toISOString()
     });
 
-    broadcast({
-      type: 'user-message',
+    broadcast(createSyncEventPayload('message.user', {
       sessionId: conversationSessionId,
       projectId: project.id,
       turnId,
       clientTurnId: turnId,
+      itemId: `local-${Date.now()}`,
       message: {
         id: `local-${Date.now()}`,
         role: 'user',
@@ -640,7 +656,7 @@ export function createChatService({
         deliveryState: 'confirmed',
         timestamp: new Date().toISOString()
       }
-    });
+    }));
     const headlessCodexMessage = planImplementationHeadlessMessage({
       codexMessage,
       visibleMessage,
@@ -740,8 +756,7 @@ export function createChatService({
     if (localRun) {
       const aborted = abortCodexTurn(localRun.turnId || turnId || sessionId);
       const completedAt = new Date().toISOString();
-      const payload = {
-        type: 'chat-aborted',
+      const payload = createSyncEventPayload('turn.aborted', {
         source: 'headless-local',
         projectId: body.projectId || undefined,
         sessionId: sessionId || localRun.sessionId || undefined,
@@ -749,11 +764,11 @@ export function createChatService({
         turnId: turnId || localRun.turnId || sessionId,
         completedAt,
         timestamp: completedAt
-      };
-      rememberTurn(payload.turnId, {
-        projectId: payload.projectId,
-        sessionId: payload.sessionId,
-        previousSessionId: payload.previousSessionId,
+      });
+      rememberTurn(payload.event.turnId, {
+        projectId: payload.event.projectId,
+        sessionId: payload.event.sessionId,
+        previousSessionId: payload.event.previousSessionId,
         source: 'headless-local',
         status: 'aborted',
         label: '已中止',
@@ -769,8 +784,7 @@ export function createChatService({
       const abortIdentifier = activeTurn.turnId || turnId || sessionId;
       const aborted = abortCodexTurn(abortIdentifier);
       const completedAt = new Date().toISOString();
-      const payload = {
-        type: 'chat-aborted',
+      const payload = createSyncEventPayload('turn.aborted', {
         source: 'headless-local',
         projectId: body.projectId || activeTurn.projectId || undefined,
         sessionId: sessionId || activeTurn.sessionId || undefined,
@@ -778,11 +792,11 @@ export function createChatService({
         turnId: abortIdentifier,
         completedAt,
         timestamp: completedAt
-      };
-      rememberTurn(payload.turnId, {
-        projectId: payload.projectId,
-        sessionId: payload.sessionId,
-        previousSessionId: payload.previousSessionId,
+      });
+      rememberTurn(payload.event.turnId, {
+        projectId: payload.event.projectId,
+        sessionId: payload.event.sessionId,
+        previousSessionId: payload.event.previousSessionId,
         source: 'headless-local',
         status: 'aborted',
         label: '已中止',
@@ -800,19 +814,18 @@ export function createChatService({
     }
 
     const completedAt = new Date().toISOString();
-    const payload = {
-      type: 'chat-aborted',
+    const payload = createSyncEventPayload('turn.aborted', {
       projectId: body.projectId || undefined,
       sessionId: sessionId || undefined,
       previousSessionId: previousSessionId || undefined,
       turnId: turnId || sessionId,
       completedAt,
       timestamp: completedAt
-    };
-    rememberTurn(payload.turnId, {
-      projectId: payload.projectId,
-      sessionId: payload.sessionId,
-      previousSessionId: payload.previousSessionId,
+    });
+    rememberTurn(payload.event.turnId, {
+      projectId: payload.event.projectId,
+      sessionId: payload.event.sessionId,
+      previousSessionId: payload.event.previousSessionId,
       status: 'aborted',
       label: '已中止',
       completedAt
@@ -842,8 +855,7 @@ export function createChatService({
     });
     const messageId = String(body.clientActionId || '').trim() || `manual-context-compaction-${sessionId}-${Date.now()}`;
     const startedAt = new Date().toISOString();
-    broadcast({
-      type: 'activity-update',
+    broadcast(createSyncEventPayload('activity.updated', {
       projectId: project.id,
       sessionId,
       messageId,
@@ -853,14 +865,20 @@ export function createChatService({
       detail: '',
       startedAt,
       timestamp: startedAt
-    });
+    }, {
+      activity: {
+        kind: 'context_compaction',
+        label: '正在压缩上下文',
+        status: 'running',
+        detail: ''
+      }
+    }));
     let result;
     try {
       result = await compactCodexThread(sessionId, { timeoutMs: 30_000 });
     } catch (error) {
       const failedAt = new Date().toISOString();
-      broadcast({
-        type: 'activity-update',
+      broadcast(createSyncEventPayload('activity.failed', {
         projectId: project.id,
         sessionId,
         messageId,
@@ -871,12 +889,18 @@ export function createChatService({
         startedAt,
         completedAt: failedAt,
         timestamp: failedAt
-      });
+      }, {
+        activity: {
+          kind: 'context_compaction',
+          label: '上下文压缩失败',
+          status: 'failed',
+          detail: error.message || '桌面端没有完成上下文压缩。'
+        }
+      }));
       throw error;
     }
     const timestamp = new Date().toISOString();
-    broadcast({
-      type: 'activity-update',
+    broadcast(createSyncEventPayload('activity.completed', {
       projectId: project.id,
       sessionId,
       messageId,
@@ -887,9 +911,15 @@ export function createChatService({
       startedAt,
       completedAt: timestamp,
       timestamp
-    });
-    broadcast({
-      type: 'context-status-update',
+    }, {
+      activity: {
+        kind: 'context_compaction',
+        label: '上下文已压缩',
+        status: 'completed',
+        detail: ''
+      }
+    }));
+    broadcast(createSyncEventPayload('context.updated', {
       projectId: project.id,
       sessionId,
       autoCompact: {
@@ -900,7 +930,17 @@ export function createChatService({
       },
       updatedAt: timestamp,
       timestamp
-    });
+    }, {
+      context: {
+        autoCompact: {
+          detected: true,
+          status: 'detected',
+          lastCompactedAt: timestamp,
+          reason: '手动压缩上下文'
+        },
+        updatedAt: timestamp
+      }
+    }));
     runtimeDebugLine('compactChat.exit', {
       projectId: project.id,
       sessionId,

@@ -441,6 +441,10 @@ export async function getDesktopBridgeStatus({ force = false } = {}) {
       socketPath: ipc.socketPath || null,
       checkedAt: new Date(now).toISOString(),
       capabilities: {
+        appServerV2: true,
+        privateNetworkTransport: true,
+        officialRelay: false,
+        desktopIpcFollower: true,
         read: true,
         sendToOpenDesktopThread: true,
         createThread: false,
@@ -460,6 +464,10 @@ export async function getDesktopBridgeStatus({ force = false } = {}) {
     socketPath: transport.sockPath || null,
     checkedAt: new Date(now).toISOString(),
     capabilities: {
+      appServerV2: true,
+      privateNetworkTransport: true,
+      officialRelay: false,
+      desktopIpcFollower: false,
       read: false,
       sendToOpenDesktopThread: false,
       createThread: false
@@ -482,6 +490,10 @@ export async function getDesktopBridgeStatus({ force = false } = {}) {
       connected: true,
       reason: transport.mode === 'isolated-dev' || transport.mode === 'headless-local' ? transport.reason : null,
       capabilities: {
+        appServerV2: true,
+        privateNetworkTransport: true,
+        officialRelay: false,
+        desktopIpcFollower: false,
         read: true,
         sendToOpenDesktopThread: transport.mode === 'desktop-proxy',
         createThread: transport.mode !== 'isolated-dev',
