@@ -135,6 +135,14 @@ test('session index builder preserves project ordering, projectless sessions, hi
         status: 'archived',
         updatedAt: 1_800_000_040,
         source: 'vscode'
+      },
+      {
+        id: 'archived-object-status',
+        cwd: projectB,
+        name: 'archived object status',
+        status: { type: 'archived' },
+        updatedAt: 1_800_000_041,
+        source: 'vscode'
       }
     ],
     spawnEdges: [
@@ -168,6 +176,7 @@ test('session index builder preserves project ordering, projectless sessions, hi
   assert.equal(index.projectById.get(projectAId).sessionCount, 3);
   assert.equal(index.sessionById.has('hidden-1'), false);
   assert.equal(index.sessionById.has('archived-1'), false);
+  assert.equal(index.sessionById.has('archived-object-status'), false);
 
   const parent = index.sessionById.get('parent-1');
   assert.equal(parent.title, '手机标题');
