@@ -120,7 +120,8 @@ function isArchivedOrDeletedDesktopThread(thread = null) {
   if (!thread || typeof thread !== 'object') {
     return true;
   }
-  const status = String(thread.status || '').toLowerCase();
+  const statusValue = typeof thread.status === 'string' ? thread.status : thread.status?.type;
+  const status = String(statusValue || '').toLowerCase();
   const archivedAt = String(thread.archivedAt || thread.deletedAt || thread.archiveAt || thread.archived_at || thread.deleted_at || '').trim();
   const deletedAt = String(thread.deletedAt || thread.deleted_at || '').trim();
   const flaggedDeleted = Boolean(thread.deleted) || Boolean(thread.isDeleted) || status === 'deleted' || status === 'archived';

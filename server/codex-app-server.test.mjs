@@ -27,6 +27,8 @@ test('filterDesktopThreadsForArchiveMode keeps archived threads only for archive
     { id: 'open-1', status: 'completed' },
     { id: 'archived-1', status: 'archived' },
     { id: 'archived-2', archived: true },
+    { id: 'archived-3', status: { type: 'archived' } },
+    { id: 'deleted-1', status: { type: 'deleted' } },
     { status: 'archived' }
   ];
 
@@ -34,7 +36,9 @@ test('filterDesktopThreadsForArchiveMode keeps archived threads only for archive
   assert.deepEqual(filterDesktopThreadsForArchiveMode(threads, { archived: true }).map((thread) => thread.id), [
     'open-1',
     'archived-1',
-    'archived-2'
+    'archived-2',
+    'archived-3',
+    'deleted-1'
   ]);
 });
 

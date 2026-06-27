@@ -58,7 +58,7 @@ export { messagesFromDesktopThread } from './desktop-thread-projector.js';
 export { normalizeComparablePath } from './session-index-builder.js';
 
 const INCLUDE_MISSING_SUBAGENT_THREADS = process.env.CODEXMOBILE_INCLUDE_MISSING_SUBAGENT_THREADS === '1';
-const USE_APP_SERVER_THREAD_LIST = /^(1|true|yes|on)$/i.test(String(process.env.CODEXMOBILE_USE_APP_SERVER_THREAD_LIST || '').trim());
+const USE_LOCAL_THREAD_SCAN = /^(1|true|yes|on)$/i.test(String(process.env.CODEXMOBILE_USE_LOCAL_THREAD_SCAN || '').trim());
 const execFileAsync = promisify(execFile);
 const LOCAL_THREAD_SCAN_LIMIT = 1000;
 const LOCAL_THREAD_HEAD_BYTES = 512 * 1024;
@@ -458,7 +458,7 @@ async function listLocalDesktopThreadsFromJsonl({ limit = LOCAL_THREAD_SCAN_LIMI
 }
 
 async function listDesktopThreadsForCache() {
-  if (!USE_APP_SERVER_THREAD_LIST) {
+  if (USE_LOCAL_THREAD_SCAN) {
     return listLocalDesktopThreadsFromJsonl({ limit: LOCAL_THREAD_SCAN_LIMIT });
   }
   const remote = listDesktopThreads({ limit: 1000 })
